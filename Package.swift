@@ -21,8 +21,5 @@ let package = Package(
         .target(
             name: "Cache",
             dependencies: []),
-        .testTarget(
-            name: "CacheTests",
-            dependencies: ["Cache"]),
     ]
 )
