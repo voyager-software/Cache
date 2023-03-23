@@ -3,7 +3,7 @@ import Dispatch
 
 /// Manipulate storage in a "all async" manner.
 /// The completion closure will be called when operation completes.
-public class AsyncStorage {
+public final class AsyncStorage {
   fileprivate let internalStorage: StorageAware
   public let serialQueue: DispatchQueue
 

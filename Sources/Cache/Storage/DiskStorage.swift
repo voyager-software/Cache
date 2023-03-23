@@ -156,7 +156,7 @@ extension DiskStorage {
    - Returns: A md5 string
    */
   func makeFileName(for key: String) -> String {
-    return MD5(key)
+      return MD5.MD5(key)
   }
 
   /**

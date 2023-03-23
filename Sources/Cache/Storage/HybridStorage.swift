@@ -1,7 +1,7 @@
 import Foundation
 
 /// Use both memory and disk storage. Try on memory first.
-class HybridStorage {
+final class HybridStorage {
   let memoryStorage: MemoryStorage
   let diskStorage: DiskStorage
 

@@ -3,7 +3,7 @@ import Dispatch
 
 /// Manipulate storage in a "all sync" manner.
 /// Block the current queue until the operation completes.
-public class SyncStorage {
+public final class SyncStorage {
   fileprivate let internalStorage: StorageAware
   fileprivate let serialQueue: DispatchQueue
 

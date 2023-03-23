@@ -1,7 +1,7 @@
 import Foundation
 
 /// Convert to and from data
-class DataSerializer {
+final class DataSerializer {
 
   /// Convert object to data
   ///
