@@ -2,7 +2,7 @@ import Foundation
 
 public typealias JSONArray = [JSONDictionary]
 
-public struct JSONArrayWrapper: Codable {
+public struct JSONArrayWrapper: Codable, Sendable {
   public let jsonArray: JSONArray
 
   public enum CodingKeys: String, CodingKey {

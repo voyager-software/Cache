@@ -11,21 +11,21 @@ public protocol AsyncStorageAware: AnyObject {
    - Parameter key: Unique key to identify the object in the cache.
    - Parameter completion: Triggered until the operation completes.
    */
-  func object<T: Codable>(ofType type: T.Type, forKey key: String, completion: @escaping (Result<T>) -> Void)
+  func object<T: Codable>(ofType type: T.Type, forKey key: String, completion: @escaping @Sendable (Result<T>) -> Void)
 
   /**
    Get cache entry which includes object with metadata.
    - Parameter key: Unique key to identify the object in the cache
    - Parameter completion: Triggered until the operation completes.
    */
-  func entry<T>(ofType type: T.Type, forKey key: String, completion: @escaping (Result<Entry<T>>) -> Void)
+  func entry<T>(ofType type: T.Type, forKey key: String, completion: @escaping @Sendable (Result<Entry<T>>) -> Void)
 
   /**
    Removes the object by the given key.
    - Parameter key: Unique key to identify the object.
    - Parameter completion: Triggered until the operation completes.
    */
-  func removeObject(forKey key: String, completion: @escaping (Result<()>) -> Void)
+  func removeObject(forKey key: String, completion: @escaping @Sendable (Result<()>) -> Void)
 
   /**
    Saves passed object.
@@ -37,7 +37,7 @@ public protocol AsyncStorageAware: AnyObject {
   func setObject<T: Codable>(_ object: T,
                              forKey key: String,
                              expiry: Expiry?,
-                             completion: @escaping (Result<()>) -> Void)
+                             completion: @escaping @Sendable (Result<()>) -> Void)
 
   /**
    Check if an object exist by the given key.
@@ -46,23 +46,23 @@ public protocol AsyncStorageAware: AnyObject {
    */
   func existsObject<T: Codable>(ofType type: T.Type,
                                 forKey key: String,
-                                completion: @escaping (Result<Bool>) -> Void)
+                                completion: @escaping @Sendable (Result<Bool>) -> Void)
 
   /**
    Removes all objects from the cache storage.
    - Parameter completion: Triggered until the operation completes.
    */
-  func removeAll(completion: @escaping (Result<()>) -> Void)
+  func removeAll(completion: @escaping @Sendable (Result<()>) -> Void)
 
   /**
    Clears all expired objects.
    - Parameter completion: Triggered until the operation completes.
    */
-  func removeExpiredObjects(completion: @escaping (Result<()>) -> Void)
+  func removeExpiredObjects(completion: @escaping @Sendable (Result<()>) -> Void)
 }
 
 public extension AsyncStorageAware {
-  func object<T: Codable>(ofType type: T.Type, forKey key: String, completion: @escaping (Result<T>) -> Void) {
+  func object<T: Codable>(ofType type: T.Type, forKey key: String, completion: @escaping @Sendable (Result<T>) -> Void) {
     entry(ofType: type, forKey: key, completion: { (result: Result<Entry<T>>) in
       completion(result.map({ entry in
         return entry.object
@@ -70,9 +70,9 @@ public extension AsyncStorageAware {
     })
   }
 
-  func existsObject<T: Codable>(ofType type: T.Type,
+  func existsObject<T: Codable & Sendable>(ofType type: T.Type,
                                 forKey key: String,
-                                completion: @escaping (Result<Bool>) -> Void) {
+                                completion: @escaping @Sendable (Result<Bool>) -> Void) {
     object(ofType: type, forKey: key, completion: { (result: Result<T>) in
       completion(result.map({ _ in
         return true

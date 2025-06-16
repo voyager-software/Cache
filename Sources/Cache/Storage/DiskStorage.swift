@@ -1,7 +1,7 @@
 import Foundation
 
 /// Save objects to file on disk
-final class DiskStorage {
+final class DiskStorage: @unchecked Sendable {
   enum Error: Swift.Error {
     case fileEnumeratorFailed
   }
@@ -53,7 +53,7 @@ extension DiskStorage: StorageAware {
 			throw StorageError.malformedFileAttributes
 		}
 
-		let meta: [String: Any] = [
+		let meta: [String: any Sendable] = [
 			"filePath": filePath
 		]
 

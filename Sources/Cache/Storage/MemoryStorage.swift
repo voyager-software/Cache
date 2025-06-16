@@ -1,7 +1,7 @@
 import Foundation
 
 /// Save objects to memory based on NSCache
-final class MemoryStorage {
+final class MemoryStorage: @unchecked Sendable {
   /// Memory cache instance
   fileprivate let cache = NSCache<NSString, MemoryCapsule>()
   // Memory cache keys

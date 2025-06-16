@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MemoryConfig {
+public struct MemoryConfig: Sendable {
   /// Expiry date that will be applied by default for every added object
   /// if it's not overridden in the add(key: object: expiry: completion:) method
   public let expiry: Expiry

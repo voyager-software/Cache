@@ -3,7 +3,7 @@ import Dispatch
 
 /// Manipulate storage in a "all async" manner.
 /// The completion closure will be called when operation completes.
-public final class AsyncStorage {
+public final class AsyncStorage: Sendable {
   fileprivate let internalStorage: StorageAware
   public let serialQueue: DispatchQueue
 
@@ -14,7 +14,7 @@ public final class AsyncStorage {
 }
 
 extension AsyncStorage: AsyncStorageAware {
-  public func entry<T>(ofType type: T.Type, forKey key: String, completion: @escaping (Result<Entry<T>>) -> Void) {
+  public func entry<T>(ofType type: T.Type, forKey key: String, completion: @escaping @Sendable (Result<Entry<T>>) -> Void) {
     serialQueue.async { [weak self] in
       guard let `self` = self else {
         completion(Result.error(StorageError.deallocated))
@@ -30,9 +30,9 @@ extension AsyncStorage: AsyncStorageAware {
     }
   }
 
-  public func removeObject(forKey key: String, completion: @escaping (Result<()>) -> Void) {
+  public func removeObject(forKey key: String, completion: @escaping @Sendable (Result<()>) -> Void) {
     serialQueue.async { [weak self] in
-      guard let `self` = self else {
+      guard let self else {
         completion(Result.error(StorageError.deallocated))
         return
       }
@@ -46,10 +46,10 @@ extension AsyncStorage: AsyncStorageAware {
     }
   }
 
-  public func setObject<T: Codable>(_ object: T,
+  public func setObject<T: Codable & Sendable>(_ object: T,
                              forKey key: String,
                              expiry: Expiry? = nil,
-                             completion: @escaping (Result<()>) -> Void) {
+                             completion: @escaping @Sendable (Result<()>) -> Void) {
     serialQueue.async { [weak self] in
       guard let `self` = self else {
         completion(Result.error(StorageError.deallocated))
@@ -65,7 +65,7 @@ extension AsyncStorage: AsyncStorageAware {
     }
   }
 
-  public func removeAll(completion: @escaping (Result<()>) -> Void) {
+  public func removeAll(completion: @escaping @Sendable (Result<()>) -> Void) {
     serialQueue.async { [weak self] in
       guard let `self` = self else {
         completion(Result.error(StorageError.deallocated))
@@ -81,7 +81,7 @@ extension AsyncStorage: AsyncStorageAware {
     }
   }
 
-  public func removeExpiredObjects(completion: @escaping (Result<()>) -> Void) {
+  public func removeExpiredObjects(completion: @escaping @Sendable (Result<()>) -> Void) {
     serialQueue.async { [weak self] in
       guard let `self` = self else {
         completion(Result.error(StorageError.deallocated))

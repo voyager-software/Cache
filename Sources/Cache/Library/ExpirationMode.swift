@@ -5,6 +5,6 @@
 ///
 /// - auto: Automatic cleanup of expired objects (default).
 /// - manual: Manual means that you opt out from any automatic expiration handling.
-public enum ExpirationMode {
+public enum ExpirationMode: Sendable {
   case auto, manual
 }

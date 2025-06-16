@@ -1,6 +1,6 @@
 import Foundation
 
-public typealias JSONDictionary = [String: Any]
+public typealias JSONDictionary = [String: any Sendable]
 
 public struct JSONDictionaryWrapper: Codable {
   public let jsonDictionary: JSONDictionary

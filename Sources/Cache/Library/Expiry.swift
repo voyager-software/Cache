@@ -3,7 +3,7 @@ import Foundation
 /**
  Helper enum to set the expiration date
  */
-public enum Expiry {
+public enum Expiry: Sendable {
   /// Object will be expired in the nearest future
   case never
   /// Object will be expired in the specified amount of seconds

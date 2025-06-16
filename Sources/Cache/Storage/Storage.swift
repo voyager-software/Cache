@@ -3,7 +3,7 @@ import Dispatch
 
 /// Manage storage. Use memory storage if specified.
 /// Synchronous by default. Use `async` for asynchronous operations.
-public final class Storage {
+public final class Storage: @unchecked Sendable {
   /// Used for sync operations
   fileprivate let sync: StorageAware
 

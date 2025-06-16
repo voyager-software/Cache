@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ImageWrapper: Codable {
+public struct ImageWrapper: Codable, Sendable {
   public let image: Image
 
   public enum CodingKeys: String, CodingKey {

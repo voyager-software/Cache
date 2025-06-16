@@ -1,7 +1,7 @@
 import Foundation
 
 /// A protocol used for saving and loading from storage
-public protocol StorageAware {
+public protocol StorageAware: Sendable {
   /**
    Tries to retrieve the object from the storage.
    - Parameter key: Unique key to identify the object in the cache
@@ -54,7 +54,7 @@ public protocol StorageAware {
 }
 
 public extension StorageAware {
-  func object<T: Codable>(ofType type: T.Type, forKey key: String) throws -> T {
+  func object<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> T {
     return try entry(ofType: type, forKey: key).object
   }
 
@@ -67,7 +67,7 @@ public extension StorageAware {
     }
   }
 
-  func isExpiredObject<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Bool {
+  func isExpiredObject<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Bool {
     do {
       let entry = try self.entry(ofType: type, forKey: key)
       return entry.expiry.isExpired

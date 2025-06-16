@@ -1,7 +1,7 @@
 import Foundation
 
 /// Used for callback in async operations.
-public enum Result<T> {
+public enum Result<T: Sendable>: Sendable {
   case value(T)
   case error(Error)
 

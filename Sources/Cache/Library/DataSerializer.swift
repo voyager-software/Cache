@@ -1,7 +1,7 @@
 import Foundation
 
 /// Convert to and from data
-final class DataSerializer {
+final class DataSerializer: Sendable {
 
   /// Convert object to data
   ///
