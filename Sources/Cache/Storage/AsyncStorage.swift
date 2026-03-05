@@ -1,11 +1,10 @@
 import Foundation
-import Dispatch
 
-/// Manipulate storage in a "all async" manner.
-/// The completion closure will be called when operation completes.
+/// Manipulate storage in an async manner.
+/// All operations are dispatched to a serial queue for thread safety.
 public final class AsyncStorage: Sendable {
   fileprivate let internalStorage: StorageAware
-  public let serialQueue: DispatchQueue
+  fileprivate let serialQueue: DispatchQueue
 
   init(storage: StorageAware, serialQueue: DispatchQueue) {
     self.internalStorage = storage
@@ -14,85 +13,89 @@ public final class AsyncStorage: Sendable {
 }
 
 extension AsyncStorage: AsyncStorageAware {
-  public func entry<T>(ofType type: T.Type, forKey key: String, completion: @escaping @Sendable (Result<Entry<T>>) -> Void) {
-    serialQueue.async { [weak self] in
-      guard let `self` = self else {
-        completion(Result.error(StorageError.deallocated))
-        return
-      }
-
-      do {
-        let anEntry = try self.internalStorage.entry(ofType: type, forKey: key)
-        completion(Result.value(anEntry))
-      } catch {
-        completion(Result.error(error))
+  public func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) async throws -> Entry<T> {
+    try await withCheckedThrowingContinuation { continuation in
+      serialQueue.async { [weak self] in
+        guard let self else {
+          continuation.resume(throwing: StorageError.deallocated)
+          return
+        }
+        do {
+          let anEntry: Entry<T> = try self.internalStorage.entry(ofType: type, forKey: key)
+          continuation.resume(returning: anEntry)
+        } catch {
+          continuation.resume(throwing: error)
+        }
       }
     }
   }
 
-  public func removeObject(forKey key: String, completion: @escaping @Sendable (Result<()>) -> Void) {
-    serialQueue.async { [weak self] in
-      guard let self else {
-        completion(Result.error(StorageError.deallocated))
-        return
-      }
-
-      do {
-        try self.internalStorage.removeObject(forKey: key)
-        completion(Result.value(()))
-      } catch {
-        completion(Result.error(error))
+  public func removeObject(forKey key: String) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      serialQueue.async { [weak self] in
+        guard let self else {
+          continuation.resume(throwing: StorageError.deallocated)
+          return
+        }
+        do {
+          try self.internalStorage.removeObject(forKey: key)
+          continuation.resume()
+        } catch {
+          continuation.resume(throwing: error)
+        }
       }
     }
   }
 
   public func setObject<T: Codable & Sendable>(_ object: T,
-                             forKey key: String,
-                             expiry: Expiry? = nil,
-                             completion: @escaping @Sendable (Result<()>) -> Void) {
-    serialQueue.async { [weak self] in
-      guard let `self` = self else {
-        completion(Result.error(StorageError.deallocated))
-        return
-      }
-
-      do {
-        try self.internalStorage.setObject(object, forKey: key, expiry: expiry)
-        completion(Result.value(()))
-      } catch {
-        completion(Result.error(error))
-      }
-    }
-  }
-
-  public func removeAll(completion: @escaping @Sendable (Result<()>) -> Void) {
-    serialQueue.async { [weak self] in
-      guard let `self` = self else {
-        completion(Result.error(StorageError.deallocated))
-        return
-      }
-
-      do {
-        try self.internalStorage.removeAll()
-        completion(Result.value(()))
-      } catch {
-        completion(Result.error(error))
+                                                forKey key: String,
+                                                expiry: Expiry? = nil) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      serialQueue.async { [weak self] in
+        guard let self else {
+          continuation.resume(throwing: StorageError.deallocated)
+          return
+        }
+        do {
+          try self.internalStorage.setObject(object, forKey: key, expiry: expiry)
+          continuation.resume()
+        } catch {
+          continuation.resume(throwing: error)
+        }
       }
     }
   }
 
-  public func removeExpiredObjects(completion: @escaping @Sendable (Result<()>) -> Void) {
-    serialQueue.async { [weak self] in
-      guard let `self` = self else {
-        completion(Result.error(StorageError.deallocated))
-        return
+  public func removeAll() async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      serialQueue.async { [weak self] in
+        guard let self else {
+          continuation.resume(throwing: StorageError.deallocated)
+          return
+        }
+        do {
+          try self.internalStorage.removeAll()
+          continuation.resume()
+        } catch {
+          continuation.resume(throwing: error)
+        }
       }
+    }
+  }
 
-      do {
-        try self.internalStorage.removeExpiredObjects()
-        completion(Result.value(()))
-      } catch {
-        completion(Result.error(error))
+  public func removeExpiredObjects() async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      serialQueue.async { [weak self] in
+        guard let self else {
+          continuation.resume(throwing: StorageError.deallocated)
+          return
+        }
+        do {
+          try self.internalStorage.removeExpiredObjects()
+          continuation.resume()
+        } catch {
+          continuation.resume(throwing: error)
+        }
       }
     }
   }

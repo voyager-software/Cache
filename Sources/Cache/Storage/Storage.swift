@@ -8,13 +8,16 @@ public final class Storage: @unchecked Sendable {
   fileprivate let sync: StorageAware
 
   /// Storage used internally by both sync and async storages
-  private let interalStorage: StorageAware
+  private let internalStorage: StorageAware
+
+  /// Used for async operations
+  public let async: AsyncStorage
 
   /// Initialize storage with configuration options.
   ///
   /// - Parameters:
   ///   - diskConfig: Configuration for disk storage
-  ///   - memoryConfig: Optional. Pass confi if you want memory cache
+  ///   - memoryConfig: Optional. Pass config if you want memory cache
   /// - Throws: Throw StorageError if any.
   public required init(diskConfig: DiskConfig, memoryConfig: MemoryConfig? = nil) throws {
     // Disk or Hybrid
@@ -29,16 +32,16 @@ public final class Storage: @unchecked Sendable {
     }
 
     // Wrapper
-    self.interalStorage = TypeWrapperStorage(storage: storage)
+    self.internalStorage = TypeWrapperStorage(storage: storage)
+
+    let serialQueue = DispatchQueue(label: "Cache.Storage.SerialQueue")
 
     // Sync
-    self.sync = SyncStorage(storage: interalStorage,
-                            serialQueue: DispatchQueue(label: "Cache.SyncStorage.SerialQueue"))
-  }
+    self.sync = SyncStorage(storage: internalStorage, serialQueue: serialQueue)
 
-  /// Used for async operations
-  public lazy var async: AsyncStorage = AsyncStorage(storage: self.interalStorage,
-                                                     serialQueue: DispatchQueue(label: "Cache.AsyncStorage.SerialQueue"))
+    // Async
+    self.async = AsyncStorage(storage: internalStorage, serialQueue: serialQueue)
+  }
 }
 
 extension Storage: StorageAware {

@@ -1,82 +1,72 @@
 import Foundation
-import Dispatch
 
-/// A protocol used for saving and loading from storage in async manner.
-public protocol AsyncStorageAware: AnyObject {
-  /// All async operation must act on a serial queue.
-  var serialQueue: DispatchQueue { get }
-
+/// A protocol used for saving and loading from storage in an async manner.
+public protocol AsyncStorageAware: AnyObject, Sendable {
   /**
    Tries to retrieve the object from the storage.
+   - Parameter type: The type to decode the object as.
    - Parameter key: Unique key to identify the object in the cache.
-   - Parameter completion: Triggered until the operation completes.
+   - Returns: The cached object.
    */
-  func object<T: Codable>(ofType type: T.Type, forKey key: String, completion: @escaping @Sendable (Result<T>) -> Void)
+  func object<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) async throws -> T
 
   /**
    Get cache entry which includes object with metadata.
-   - Parameter key: Unique key to identify the object in the cache
-   - Parameter completion: Triggered until the operation completes.
+   - Parameter type: The type to decode the object as.
+   - Parameter key: Unique key to identify the object in the cache.
+   - Returns: Object wrapper with metadata.
    */
-  func entry<T>(ofType type: T.Type, forKey key: String, completion: @escaping @Sendable (Result<Entry<T>>) -> Void)
+  func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) async throws -> Entry<T>
 
   /**
    Removes the object by the given key.
    - Parameter key: Unique key to identify the object.
-   - Parameter completion: Triggered until the operation completes.
    */
-  func removeObject(forKey key: String, completion: @escaping @Sendable (Result<()>) -> Void)
+  func removeObject(forKey key: String) async throws
 
   /**
    Saves passed object.
-   - Parameter key: Unique key to identify the object in the cache.
    - Parameter object: Object that needs to be cached.
+   - Parameter key: Unique key to identify the object in the cache.
    - Parameter expiry: Overwrite expiry for this object only.
-   - Parameter completion: Triggered until the operation completes.
    */
-  func setObject<T: Codable>(_ object: T,
-                             forKey key: String,
-                             expiry: Expiry?,
-                             completion: @escaping @Sendable (Result<()>) -> Void)
+  func setObject<T: Codable & Sendable>(_ object: T,
+                                        forKey key: String,
+                                        expiry: Expiry?) async throws
 
   /**
-   Check if an object exist by the given key.
+   Check if an object exists by the given key.
+   - Parameter type: The type to decode the object as.
    - Parameter key: Unique key to identify the object.
-   - Parameter completion: Triggered until the operation completes.
+   - Returns: Whether the object exists.
    */
-  func existsObject<T: Codable>(ofType type: T.Type,
-                                forKey key: String,
-                                completion: @escaping @Sendable (Result<Bool>) -> Void)
+  func existsObject<T: Codable & Sendable>(ofType type: T.Type,
+                                           forKey key: String) async throws -> Bool
 
   /**
    Removes all objects from the cache storage.
-   - Parameter completion: Triggered until the operation completes.
    */
-  func removeAll(completion: @escaping @Sendable (Result<()>) -> Void)
+  func removeAll() async throws
 
   /**
    Clears all expired objects.
-   - Parameter completion: Triggered until the operation completes.
    */
-  func removeExpiredObjects(completion: @escaping @Sendable (Result<()>) -> Void)
+  func removeExpiredObjects() async throws
 }
 
 public extension AsyncStorageAware {
-  func object<T: Codable>(ofType type: T.Type, forKey key: String, completion: @escaping @Sendable (Result<T>) -> Void) {
-    entry(ofType: type, forKey: key, completion: { (result: Result<Entry<T>>) in
-      completion(result.map({ entry in
-        return entry.object
-      }))
-    })
+  func object<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) async throws -> T {
+    let anEntry: Entry<T> = try await entry(ofType: type, forKey: key)
+    return anEntry.object
   }
 
   func existsObject<T: Codable & Sendable>(ofType type: T.Type,
-                                forKey key: String,
-                                completion: @escaping @Sendable (Result<Bool>) -> Void) {
-    object(ofType: type, forKey: key, completion: { (result: Result<T>) in
-      completion(result.map({ _ in
-        return true
-      }))
-    })
+                                           forKey key: String) async throws -> Bool {
+    do {
+      let _: T = try await object(ofType: type, forKey: key)
+      return true
+    } catch {
+      return false
+    }
   }
 }
