@@ -20,11 +20,11 @@ final class MemoryStorage: @unchecked Sendable {
 extension MemoryStorage: StorageAware {
   func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
     guard let capsule = cache.object(forKey: NSString(string: key)) else {
-      throw StorageError.notFound
+      throw StorageError.notFound(key: key)
     }
 
     guard let object = capsule.object as? T else {
-      throw StorageError.typeNotMatch
+      throw StorageError.typeNotMatch(key: key)
     }
 
     return Entry(object: object, expiry: capsule.expiry)

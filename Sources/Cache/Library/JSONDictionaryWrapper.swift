@@ -22,7 +22,7 @@ public struct JSONDictionaryWrapper: Codable, Sendable {
     )
 
     guard let jsonDictionary = object as? JSONDictionary else {
-      throw StorageError.decodingFailed
+      throw StorageError.decodingFailed(context: "JSONDictionaryWrapper: JSON object is not a dictionary", underlyingError: nil)
     }
 
     self.jsonDictionary = jsonDictionary

@@ -50,7 +50,7 @@ extension DiskStorage: StorageAware {
 		let attributes = try fileManager.attributesOfItem(atPath: filePath)
 
 		guard let date = attributes[.modificationDate] as? Date else {
-			throw StorageError.malformedFileAttributes
+			throw StorageError.malformedFileAttributes(key: key)
 		}
 
 		let meta: [String: any Sendable] = [

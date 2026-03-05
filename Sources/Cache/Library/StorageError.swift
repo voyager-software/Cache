@@ -2,15 +2,15 @@ import Foundation
 
 public enum StorageError: Error {
   /// Object can not be found
-  case notFound
+  case notFound(key: String)
   /// Object is found, but casting to requested type failed
-  case typeNotMatch
+  case typeNotMatch(key: String)
   /// The file attributes are malformed
-  case malformedFileAttributes
+  case malformedFileAttributes(key: String)
   /// Can't perform Decode
-  case decodingFailed
+  case decodingFailed(context: String, underlyingError: Error?)
   /// Can't perform Encode
-  case encodingFailed
+  case encodingFailed(context: String, underlyingError: Error?)
   /// The storage has been deallocated
   case deallocated
 }

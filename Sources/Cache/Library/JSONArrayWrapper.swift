@@ -22,7 +22,7 @@ public struct JSONArrayWrapper: Codable, Sendable {
     )
 
     guard let jsonArray = object as? JSONArray else {
-      throw StorageError.decodingFailed
+      throw StorageError.decodingFailed(context: "JSONArrayWrapper: JSON object is not an array", underlyingError: nil)
     }
 
     self.jsonArray = jsonArray

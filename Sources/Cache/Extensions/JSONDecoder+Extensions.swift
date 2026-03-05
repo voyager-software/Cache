@@ -11,7 +11,7 @@ public extension JSONDecoder {
   /// - Throws: Error if failed.
   static func decode<T: Codable>(_ string: String, to type: T.Type) throws -> T {
     guard let data = string.data(using: .utf8) else {
-      throw StorageError.decodingFailed
+      throw StorageError.decodingFailed(context: "JSONDecoder: failed to convert String to UTF-8 data", underlyingError: nil)
     }
 
     return try decode(data, to: type.self)
