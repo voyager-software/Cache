@@ -1,7 +1,9 @@
 import Foundation
 
 /// Convert to and from data
-final class DataSerializer: Sendable {
+enum DataSerializer {
+  private static let encoder = JSONEncoder()
+  private static let decoder = JSONDecoder()
 
   /// Convert object to data
   ///
@@ -9,7 +11,6 @@ final class DataSerializer: Sendable {
   /// - Returns: Data
   /// - Throws: Encoder error if any
   static func serialize<T: Encodable>(object: T) throws -> Data {
-    let encoder = JSONEncoder()
     return try encoder.encode(object)
   }
 
@@ -19,7 +20,6 @@ final class DataSerializer: Sendable {
   /// - Returns: The object
   /// - Throws: Decoder error if any
   static func deserialize<T: Decodable>(data: Data) throws -> T {
-    let decoder = JSONDecoder()
     return try decoder.decode(T.self, from: data)
   }
 }
