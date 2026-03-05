@@ -1,13 +1,14 @@
 import Foundation
+import os
 
 /// Save objects to memory based on NSCache
-final class MemoryStorage: @unchecked Sendable {
-  /// Memory cache instance
-  fileprivate let cache = NSCache<NSString, MemoryCapsule>()
-  // Memory cache keys
-  fileprivate var keys = Set<String>()
+final class MemoryStorage: Sendable {
+  /// Memory cache instance (NSCache is thread-safe)
+  private nonisolated(unsafe) let cache = NSCache<NSString, MemoryCapsule>()
+  /// Memory cache keys, protected by a lock
+  private let lockedKeys = OSAllocatedUnfairLock(initialState: Set<String>())
   /// Configuration
-  fileprivate let config: MemoryConfig
+  private let config: MemoryConfig
 
   // MARK: - Initialization
 
@@ -32,22 +33,22 @@ extension MemoryStorage: StorageAware {
 
   func removeObject(forKey key: String) {
     cache.removeObject(forKey: NSString(string: key))
-    keys.remove(key)
+    lockedKeys.withLock { _ = $0.remove(key) }
   }
 
   func setObject<T: Codable>(_ object: T, forKey key: String, expiry: Expiry? = nil) {
     let capsule = MemoryCapsule(value: object, expiry: .date(expiry?.date ?? config.expiry.date))
     cache.setObject(capsule, forKey: NSString(string: key))
-    keys.insert(key)
+    lockedKeys.withLock { _ = $0.insert(key) }
   }
 
   func removeAll() {
     cache.removeAllObjects()
-    keys.removeAll()
+    lockedKeys.withLock { $0.removeAll() }
   }
 
   func removeExpiredObjects() {
-    let allKeys = keys
+    let allKeys = lockedKeys.withLock { $0 }
     for key in allKeys {
       removeObjectIfExpired(forKey: key)
     }

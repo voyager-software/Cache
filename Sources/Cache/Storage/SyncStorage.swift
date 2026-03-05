@@ -3,9 +3,9 @@ import Dispatch
 
 /// Manipulate storage in a "all sync" manner.
 /// Block the current queue until the operation completes.
-public final class SyncStorage {
-  fileprivate let internalStorage: StorageAware
-  fileprivate let serialQueue: DispatchQueue
+public final class SyncStorage: Sendable {
+  private let internalStorage: StorageAware
+  private let serialQueue: DispatchQueue
 
   init(storage: StorageAware, serialQueue: DispatchQueue) {
     self.internalStorage = storage

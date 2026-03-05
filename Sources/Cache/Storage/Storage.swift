@@ -3,9 +3,9 @@ import Dispatch
 
 /// Manage storage. Use memory storage if specified.
 /// Synchronous by default. Use `async` for asynchronous operations.
-public final class Storage: @unchecked Sendable {
+public final class Storage: Sendable {
   /// Used for sync operations
-  fileprivate let sync: StorageAware
+  private let sync: StorageAware
 
   /// Storage used internally by both sync and async storages
   private let internalStorage: StorageAware

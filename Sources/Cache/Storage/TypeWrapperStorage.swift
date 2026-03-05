@@ -3,7 +3,7 @@ import Foundation
 /// Deal with top level primitive. Use TypeWrapper as wrapper
 /// Because we use `JSONEncoder` and `JSONDecoder`.
 /// Avoid issue like "Top-level T encoded as number JSON fragment"
-final class TypeWrapperStorage {
+final class TypeWrapperStorage: Sendable {
   let internalStorage: StorageAware
 
   init(storage: StorageAware) {

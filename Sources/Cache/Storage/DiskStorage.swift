@@ -1,17 +1,20 @@
 import Foundation
+import os
 
 /// Save objects to file on disk
-final class DiskStorage: @unchecked Sendable {
+final class DiskStorage: Sendable {
   enum Error: Swift.Error {
     case fileEnumeratorFailed
   }
 
-  /// File manager to read/write to the disk
-  fileprivate let fileManager: FileManager
+  /// File manager to read/write to the disk (access protected by lock)
+  private nonisolated(unsafe) let fileManager: FileManager
   /// Configuration
-  fileprivate let config: DiskConfig
+  private let config: DiskConfig
   /// The computed path `directory+name`
   let path: String
+  /// Lock protecting all file I/O operations
+  private let lock = OSAllocatedUnfairLock()
 
   // MARK: - Initialization
 
@@ -44,96 +47,106 @@ final class DiskStorage: @unchecked Sendable {
 }
 
 extension DiskStorage: StorageAware {
-	func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
-		let filePath = makeFilePath(for: key)
-		let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
-		let attributes = try fileManager.attributesOfItem(atPath: filePath)
+  func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
+    try lock.withLockUnchecked {
+      let filePath = makeFilePath(for: key)
+      let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+      let attributes = try fileManager.attributesOfItem(atPath: filePath)
 
-		guard let date = attributes[.modificationDate] as? Date else {
-			throw StorageError.malformedFileAttributes(key: key)
-		}
+      guard let date = attributes[.modificationDate] as? Date else {
+        throw StorageError.malformedFileAttributes(key: key)
+      }
 
-		let meta: [String: any Sendable] = [
-			"filePath": filePath
-		]
+      let meta: [String: any Sendable] = [
+        "filePath": filePath
+      ]
 
-		let object: T = T.self == Data.self
-			? data as! T
-			: try DataSerializer.deserialize(data: data)
+      let object: T = T.self == Data.self
+        ? data as! T
+        : try DataSerializer.deserialize(data: data)
 
-		return Entry(
-			object: object,
-			expiry: Expiry.date(date),
-			meta: meta
-		)
-	}
+      return Entry(
+        object: object,
+        expiry: Expiry.date(date),
+        meta: meta
+      )
+    }
+  }
 
-	func setObject<T: Codable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
-		let expiry = expiry ?? config.expiry
+  func setObject<T: Codable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
+    try lock.withLockUnchecked {
+      let expiry = expiry ?? config.expiry
 
-		let data = object is Data
-			? object as! Data
-			: try DataSerializer.serialize(object: object)
+      let data = object is Data
+        ? object as! Data
+        : try DataSerializer.serialize(object: object)
 
-		let filePath = makeFilePath(for: key)
-		_ = fileManager.createFile(atPath: filePath, contents: data, attributes: nil)
-		try fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
-	}
+      let filePath = makeFilePath(for: key)
+      _ = fileManager.createFile(atPath: filePath, contents: data, attributes: nil)
+      try fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
+    }
+  }
 
   func removeObject(forKey key: String) throws {
-    try fileManager.removeItem(atPath: makeFilePath(for: key))
+    try lock.withLockUnchecked {
+      try fileManager.removeItem(atPath: makeFilePath(for: key))
+    }
   }
 
   func removeAll() throws {
-    try fileManager.removeItem(atPath: path)
-    try createDirectory()
+    try lock.withLockUnchecked {
+      try fileManager.removeItem(atPath: path)
+      try createDirectory()
+    }
   }
 
   func removeExpiredObjects() throws {
-    let storageURL = URL(fileURLWithPath: path)
-    let resourceKeys: [URLResourceKey] = [
-      .isDirectoryKey,
-      .contentModificationDateKey,
-      .totalFileAllocatedSizeKey
-    ]
-    var resourceObjects = [ResourceObject]()
-    var filesToDelete = [URL]()
-    var totalSize: UInt = 0
-    let fileEnumerator = fileManager.enumerator(
-      at: storageURL,
-      includingPropertiesForKeys: resourceKeys,
-      options: .skipsHiddenFiles,
-      errorHandler: nil
-    )
+    try lock.withLockUnchecked {
+      let storageURL = URL(fileURLWithPath: path)
+      let resourceKeys: [URLResourceKey] = [
+        .isDirectoryKey,
+        .contentModificationDateKey,
+        .totalFileAllocatedSizeKey
+      ]
+      var resourceObjects = [ResourceObject]()
+      var filesToDelete = [URL]()
+      var totalSize: UInt = 0
+      let fileEnumerator = fileManager.enumerator(
+        at: storageURL,
+        includingPropertiesForKeys: resourceKeys,
+        options: .skipsHiddenFiles,
+        errorHandler: nil
+      )
 
-    guard let urlArray = fileEnumerator?.allObjects as? [URL] else {
-      throw Error.fileEnumeratorFailed
-    }
-
-    for url in urlArray {
-      let resourceValues = try url.resourceValues(forKeys: Set(resourceKeys))
-      guard resourceValues.isDirectory != true else {
-        continue
+      guard let urlArray = fileEnumerator?.allObjects as? [URL] else {
+        throw Error.fileEnumeratorFailed
       }
 
-      if let expiryDate = resourceValues.contentModificationDate, expiryDate.inThePast {
-        filesToDelete.append(url)
-        continue
+      for url in urlArray {
+        let resourceValues = try url.resourceValues(forKeys: Set(resourceKeys))
+        guard resourceValues.isDirectory != true else {
+          continue
+        }
+
+        if let expiryDate = resourceValues.contentModificationDate, expiryDate.inThePast {
+          filesToDelete.append(url)
+          continue
+        }
+
+        if let fileSize = resourceValues.totalFileAllocatedSize {
+          totalSize += UInt(fileSize)
+          resourceObjects.append((url: url, resourceValues: resourceValues))
+        }
       }
 
-      if let fileSize = resourceValues.totalFileAllocatedSize {
-        totalSize += UInt(fileSize)
-        resourceObjects.append((url: url, resourceValues: resourceValues))
+      // Remove expired objects
+      for url in filesToDelete {
+        try fileManager.removeItem(at: url)
       }
-    }
 
-    // Remove expired objects
-    for url in filesToDelete {
-      try fileManager.removeItem(at: url)
+      // Remove objects if storage size exceeds max size
+      try removeResourceObjects(resourceObjects, totalSize: totalSize)
     }
-
-    // Remove objects if storage size exceeds max size
-    try removeResourceObjects(resourceObjects, totalSize: totalSize)
   }
 }
 
@@ -156,7 +169,7 @@ extension DiskStorage {
    - Returns: A md5 string
    */
   func makeFileName(for key: String) -> String {
-      return MD5.MD5(key)
+    return MD5.MD5(key)
   }
 
   /**
@@ -170,18 +183,22 @@ extension DiskStorage {
 
   /// Calculates total disk cache size.
   func totalSize() throws -> UInt64 {
-    var size: UInt64 = 0
-    let contents = try fileManager.contentsOfDirectory(atPath: path)
-    for pathComponent in contents {
-      let filePath = NSString(string: path).appendingPathComponent(pathComponent)
-      let attributes = try fileManager.attributesOfItem(atPath: filePath)
-      if let fileSize = attributes[.size] as? UInt64 {
-        size += fileSize
+    try lock.withLockUnchecked {
+      var size: UInt64 = 0
+      let contents = try fileManager.contentsOfDirectory(atPath: path)
+      for pathComponent in contents {
+        let filePath = NSString(string: path).appendingPathComponent(pathComponent)
+        let attributes = try fileManager.attributesOfItem(atPath: filePath)
+        if let fileSize = attributes[.size] as? UInt64 {
+          size += fileSize
+        }
       }
+      return size
     }
-    return size
   }
 
+  /// Creates the cache directory if it doesn't exist.
+  /// Must be called while holding the lock, or during init.
   func createDirectory() throws {
     guard !fileManager.fileExists(atPath: path) else {
       return
@@ -193,6 +210,7 @@ extension DiskStorage {
 
   /**
    Removes objects if storage size exceeds max size.
+   Must be called while holding the lock.
    - Parameter objects: Resource objects to remove
    - Parameter totalSize: Total size
    */
@@ -229,10 +247,12 @@ extension DiskStorage {
    - Parameter key: Unique key to identify the object in the cache
    */
   func removeObjectIfExpired(forKey key: String) throws {
-    let filePath = makeFilePath(for: key)
-    let attributes = try fileManager.attributesOfItem(atPath: filePath)
-    if let expiryDate = attributes[.modificationDate] as? Date, expiryDate.inThePast {
-      try fileManager.removeItem(atPath: filePath)
+    try lock.withLockUnchecked {
+      let filePath = makeFilePath(for: key)
+      let attributes = try fileManager.attributesOfItem(atPath: filePath)
+      if let expiryDate = attributes[.modificationDate] as? Date, expiryDate.inThePast {
+        try fileManager.removeItem(atPath: filePath)
+      }
     }
   }
 }

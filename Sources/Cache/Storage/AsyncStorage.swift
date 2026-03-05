@@ -3,8 +3,8 @@ import Foundation
 /// Manipulate storage in an async manner.
 /// All operations are dispatched to a serial queue for thread safety.
 public final class AsyncStorage: Sendable {
-  fileprivate let internalStorage: StorageAware
-  fileprivate let serialQueue: DispatchQueue
+  private let internalStorage: StorageAware
+  private let serialQueue: DispatchQueue
 
   init(storage: StorageAware, serialQueue: DispatchQueue) {
     self.internalStorage = storage
