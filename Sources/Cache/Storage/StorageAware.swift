@@ -7,14 +7,14 @@ protocol StorageAware: Sendable {
    - Parameter key: Unique key to identify the object in the cache
    - Returns: Cached object or nil if not found
    */
-  func object<T: Codable>(ofType type: T.Type, forKey key: String) throws -> T
+  func object<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> T
 
   /**
    Get cache entry which includes object with metadata.
    - Parameter key: Unique key to identify the object in the cache
    - Returns: Object wrapper with metadata or nil if not found
    */
-  func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T>
+  func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T>
 
   /**
    Removes the object by the given key.
@@ -28,13 +28,13 @@ protocol StorageAware: Sendable {
    - Parameter object: Object that needs to be cached.
    - Parameter expiry: Overwrite expiry for this object only.
    */
-  func setObject<T: Codable>(_ object: T, forKey key: String, expiry: Expiry?) throws
+  func setObject<T: Codable & Sendable>(_ object: T, forKey key: String, expiry: Expiry?) throws
 
   /**
    Check if an object exist by the given key.
    - Parameter key: Unique key to identify the object.
    */
-  func existsObject<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Bool
+  func existsObject<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Bool
 
   /**
    Removes all objects from the cache storage.
@@ -50,7 +50,7 @@ protocol StorageAware: Sendable {
    Check if an expired object by the given key.
    - Parameter key: Unique key to identify the object.
   */
-  func isExpiredObject<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Bool
+  func isExpiredObject<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Bool
 }
 
 extension StorageAware {
@@ -58,7 +58,7 @@ extension StorageAware {
     return try entry(ofType: type, forKey: key).object
   }
 
-  func existsObject<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Bool {
+  func existsObject<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Bool {
     do {
       let _: T = try object(ofType: type, forKey: key)
       return true

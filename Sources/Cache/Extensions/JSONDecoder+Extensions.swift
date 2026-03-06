@@ -1,7 +1,9 @@
 import Foundation
 
 /// Convert json string, dictionary, data to Codable objects
-public extension JSONDecoder {
+public enum JSONDecoderHelper {
+  private static let decoder = JSONDecoder()
+
   /// Convert json string to Codable object
   ///
   /// - Parameters:
@@ -37,6 +39,6 @@ public extension JSONDecoder {
   /// - Returns: Codable object
   /// - Throws: Error if failed
   static func decode<T: Codable>(_ data: Data, to type: T.Type) throws -> T {
-    return try JSONDecoder().decode(T.self, from: data)
+    return try decoder.decode(T.self, from: data)
   }
 }

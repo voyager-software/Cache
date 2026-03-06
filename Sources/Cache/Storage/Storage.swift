@@ -1,7 +1,6 @@
 import Foundation
 
 /// Manage storage. Use memory storage if specified.
-/// Synchronous by default. Use `async` for asynchronous operations.
 public final class Storage: Sendable {
   /// Internal storage implementation
   private let internalStorage: StorageAware
@@ -12,7 +11,7 @@ public final class Storage: Sendable {
   ///   - diskConfig: Configuration for disk storage
   ///   - memoryConfig: Optional. Pass config if you want memory cache
   /// - Throws: Throw StorageError if any.
-  public required init(diskConfig: DiskConfig, memoryConfig: MemoryConfig? = nil) throws {
+  public init(diskConfig: DiskConfig, memoryConfig: MemoryConfig? = nil) throws {
     // Disk or Hybrid
     let storage: StorageAware
     let disk = try DiskStorage(config: diskConfig)
@@ -29,7 +28,7 @@ public final class Storage: Sendable {
 }
 
 extension Storage: StorageAware {
-  public func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
+  public func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
     return try internalStorage.entry(ofType: type, forKey: key)
   }
 
@@ -37,7 +36,7 @@ extension Storage: StorageAware {
     try internalStorage.removeObject(forKey: key)
   }
 
-  public func setObject<T: Codable>(_ object: T, forKey key: String,
+  public func setObject<T: Codable & Sendable>(_ object: T, forKey key: String,
                                     expiry: Expiry? = nil) throws {
     try internalStorage.setObject(object, forKey: key, expiry: expiry)
   }

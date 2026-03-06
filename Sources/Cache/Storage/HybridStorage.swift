@@ -15,7 +15,7 @@ final class HybridStorage: Sendable {
 }
 
 extension HybridStorage: StorageAware {
-  func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
+  func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
     try lock.withLockUnchecked {
       do {
         return try memoryStorage.entry(ofType: type, forKey: key)
@@ -35,7 +35,7 @@ extension HybridStorage: StorageAware {
     }
   }
 
-  func setObject<T: Codable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
+  func setObject<T: Codable & Sendable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
     try lock.withLockUnchecked {
       memoryStorage.setObject(object, forKey: key, expiry: expiry)
       try diskStorage.setObject(object, forKey: key, expiry: expiry)

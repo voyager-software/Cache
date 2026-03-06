@@ -19,7 +19,7 @@ final class MemoryStorage: Sendable {
 }
 
 extension MemoryStorage: StorageAware {
-  func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
+  func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
     guard let capsule = cache.object(forKey: NSString(string: key)) else {
       throw StorageError.notFound(key: key)
     }
@@ -36,7 +36,7 @@ extension MemoryStorage: StorageAware {
     lockedKeys.withLock { _ = $0.remove(key) }
   }
 
-  func setObject<T: Codable>(_ object: T, forKey key: String, expiry: Expiry? = nil) {
+  func setObject<T: Codable & Sendable>(_ object: T, forKey key: String, expiry: Expiry? = nil) {
     let capsule = MemoryCapsule(value: object, expiry: .date(expiry?.date ?? config.expiry.date))
     cache.setObject(capsule, forKey: NSString(string: key))
     lockedKeys.withLock { _ = $0.insert(key) }
