@@ -1,38 +1,38 @@
 #if os(macOS)
 import AppKit
 
-/// Helper UIImage extension.
+/// Helper NSImage extension.
 extension NSImage {
-  /// Checks if image has alpha component
-  var hasAlpha: Bool {
-    var imageRect: CGRect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+    /// Checks if image has alpha component
+    var hasAlpha: Bool {
+        var imageRect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
 
-    guard let imageRef = cgImage(forProposedRect: &imageRect, context: nil, hints: nil) else {
-      return false
+        guard let imageRef = cgImage(forProposedRect: &imageRect, context: nil, hints: nil) else {
+            return false
+        }
+
+        let result: Bool
+        let alpha = imageRef.alphaInfo
+
+        switch alpha {
+        case .none, .noneSkipFirst, .noneSkipLast:
+            result = false
+        default:
+            result = true
+        }
+
+        return result
     }
 
-    let result: Bool
-    let alpha = imageRef.alphaInfo
+    /// Convert to data
+    func cache_toData() -> Data? {
+        guard let data = tiffRepresentation else {
+            return nil
+        }
 
-    switch alpha {
-    case .none, .noneSkipFirst, .noneSkipLast:
-      result = false
-    default:
-      result = true
+        let imageFileType: NSBitmapImageRep.FileType = self.hasAlpha ? .png : .jpeg
+        return NSBitmapImageRep(data: data)?
+            .representation(using: imageFileType, properties: [:])
     }
-
-    return result
-  }
-
-  /// Convert to data
-  func cache_toData() -> Data? {
-    guard let data = tiffRepresentation else {
-      return nil
-    }
-
-    let imageFileType: NSBitmapImageRep.FileType = hasAlpha ? .png : .jpeg
-    return NSBitmapImageRep(data: data)?
-      .representation(using: imageFileType, properties: [:])
-  }
 }
 #endif
