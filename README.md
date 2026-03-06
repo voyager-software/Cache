@@ -1,5 +1,3 @@
-![Cache](https://github.com/hyperoslo/Cache/blob/master/Resources/CachePresentation.png)
-
 ## Table of Contents
 
 * [Description](#description)
@@ -7,11 +5,9 @@
 * [Usage](#usage)
   * [Storage](#storage)
   * [Configuration](#configuration)
-  * [Sync APIs](#sync-apis)
-  * [Async APIS](#async-apis)
+  * [APIs](#apis)
   * [Expiry date](#expiry-date)
 * [What about images?](#what-about-images)
-* [Handling JSON response](#handling-json-response)
 * [Installation](#installation)
 * [Author](#author)
 * [Contributing](#contributing)
@@ -19,23 +15,19 @@
 
 ## Description
 
-<img src="https://github.com/hyperoslo/Cache/blob/master/Resources/CacheIcon.png" alt="Cache Icon" align="right" />
-
 **Cache** doesn't claim to be unique in this area, but it's not another monster
 library that gives you a god's power. It does nothing but caching, but it does it well. It offers a good public API
-with out-of-box implementations and great customization possibilities. `Cache` utilizes `Codable` in Swift 4 to perform serialization.
+with out-of-box implementations and great customization possibilities. `Cache` utilizes `Codable` to perform serialization.
 
 ## Key features
 
-- [x] Work with Swift 4 `Codable`. Anything conforming to `Codable` will be saved and loaded easily by `Storage`.
-- [X] Disk storage by default. Optionally using `memory storage` to enable hybrid.
-- [X] Many options via `DiskConfig` and `MemoryConfig`.
+- [x] Works with `Codable` and `Sendable`. Anything conforming to both will be saved and loaded easily by `Storage`.
+- [x] Disk, memory, or hybrid storage modes.
+- [x] Many options via `DiskConfig` and `MemoryConfig`.
 - [x] Support `expiry` and clean up of expired objects.
-- [x] Thread safe. Operations can be accessed from any queue.
-- [x] Sync by default. Also support Async APIs.
-- [X] Store images via `ImageWrapper`.
-- [x] Extensive unit test coverage and great documentation.
-- [x] iOS, tvOS and macOS support.
+- [x] Thread safe. `Storage` is `Sendable` and can be accessed from any queue.
+- [x] Store images via `ImageWrapper`.
+- [x] iOS, tvOS, macOS, watchOS and visionOS support.
 
 ## Usage
 
@@ -43,16 +35,19 @@ with out-of-box implementations and great customization possibilities. `Cache` u
 
 `Cache` is built based on [Chain-of-responsibility pattern](https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern), in which there are many processing objects, each knows how to do 1 task and delegates to the next one. But that's just implementation detail. All you need to know is `Storage`, it saves and loads `Codable` objects.
 
-`Storage` has disk storage and an optional memory storage. Memory storage should be less time and memory consuming, while disk storage is used for content that outlives the application life-cycle, see it more like a convenient way to store user information that should persist across application launches.
-
-`DiskConfig` is required to set up disk storage. You can optionally pass `MemoryConfig` to use memory as front storage.
-
+`Storage` supports three modes: disk-only, memory-only, or hybrid (memory + disk). Memory storage is fast but volatile, while disk storage persists across application launches.
 
 ```swift
+// Disk only
 let diskConfig = DiskConfig(name: "Floppy")
-let memoryConfig = MemoryConfig(expiry: .never, countLimit: 10, totalCostLimit: 10)
+let storage = try Storage(diskConfig: diskConfig)
 
-let storage = try? Storage(diskConfig: diskConfig, memoryConfig: memoryConfig)
+// Hybrid (memory + disk)
+let memoryConfig = MemoryConfig(expiry: .never, countLimit: 10)
+let storage = try Storage(diskConfig: diskConfig, memoryConfig: memoryConfig)
+
+// Memory only
+let storage = Storage(memoryConfig: MemoryConfig(expiry: .never, countLimit: 50))
 ```
 
 #### Codable types
@@ -76,17 +71,15 @@ Error handling is done via `try catch`. `Storage` throws errors in terms of `Sto
 ```swift
 public enum StorageError: Error {
   /// Object can not be found
-  case notFound
+  case notFound(key: String)
   /// Object is found, but casting to requested type failed
-  case typeNotMatch
+  case typeNotMatch(key: String)
   /// The file attributes are malformed
-  case malformedFileAttributes
+  case malformedFileAttributes(key: String)
   /// Can't perform Decode
-  case decodingFailed
+  case decodingFailed(context: String, underlyingError: Error?)
   /// Can't perform Encode
-  case encodingFailed
-  /// The storage has been deallocated
-  case deallocated
+  case encodingFailed(context: String, underlyingError: Error?)
 }
 ```
 
@@ -126,18 +119,16 @@ let memoryConfig = MemoryConfig(
   // Expiry date that will be applied by default for every added object
   // if it's not overridden in the `setObject(forKey:expiry:)` method
   expiry: .date(Date().addingTimeInterval(2*60)),
-  /// The maximum number of objects in memory the cache should hold
-  countLimit: 50,
-  /// The maximum total cost that the cache can hold before it starts evicting objects
-  totalCostLimit: 0
+  /// The maximum number of objects in memory the cache should hold. 0 means no limit.
+  countLimit: 50
 )
 ```
 
 On iOS, tvOS we can also specify `protectionType` on `DiskConfig` to add a level of security to files stored on disk by your app in the app’s container. For more information, see [FileProtectionType](https://developer.apple.com/documentation/foundation/fileprotectiontype)
 
-### Sync APIs
+### APIs
 
-`Storage` is sync by default and is `thread safe`, you can access it from any queues. All Sync functions are constrained by `StorageAware` protocol.
+`Storage` is thread safe and `Sendable` — you can access it from any queue or task. All functions are constrained by the `StorageAware` protocol.
 
 ```swift
 // Save to storage
@@ -177,68 +168,18 @@ print(entry?.meta)
 
 `meta` may contain file information if the object was fetched from disk storage.
 
-#### Custom Codable
+#### Custom types
 
-`Codable` works for simple dictionary like `[String: Int]`, `[String: String]`, ... It does not work for `[String: Any]` as `Any` is not `Codable` conformance, it will raise `fatal error` at runtime. So when you get json from backend responses, you need to convert that to your custom `Codable` objects and save to `Storage` instead.
+Types stored in `Storage` must conform to both `Codable` and `Sendable`. It does not work for `[String: Any]` as `Any` conforms to neither. Convert JSON responses to strongly typed objects before saving.
 
 ```swift
-struct User: Codable {
+struct User: Codable, Sendable {
   let firstName: String
   let lastName: String
 }
 
-let user = User(fistName: "John", lastName: "Snow")
+let user = User(firstName: "John", lastName: "Snow")
 try? storage.setObject(user, forKey: "character")
-```
-
-### Async APIs
-
-In `async` fashion, you deal with `Result` instead of `try catch` because the result is delivered at a later time, in order to not block the current calling queue. In the completion block, you either have `value` or `error`. 
-
-You access Async APIs via `storage.async`, it is also thread safe, and you can use Sync and Async APIs in any order you want. All Async functions are constrained by `AsyncStorageAware` protocol.
-
-```swift
-storage.async.setObject("Oslo", forKey: "my favorite city") { result in
-  switch result {
-    case .value:
-      print("saved successfully")
-    case .error(let error):
-      print(error)
-  }
-}
-
-storage.async.object(ofType: String.self, forKey: "my favorite city") { result in
-  switch result {
-    case .value(let city):
-      print("my favorite city is \(city)")
-    case .error(let error):
-      print(error)
-  }
-}
-
-storage.async.existsObject(ofType: String.self, forKey: "my favorite city") { result in
-  if case .value(let exists) = result, exists {
-    print("I have a favorite city")
-  }
-}
-
-storage.async.removeAll() { result in
-  switch result {
-    case .value:
-      print("removal completes")
-    case .error(let error):
-      print(error)
-  }
-}
-
-storage.async.removeExpiredObjects() { result in
-  switch result {
-    case .value:
-      print("removal completes")
-    case .error(let error):
-      print(error)
-  }
-}
 ```
 
 ### Expiry date
@@ -246,18 +187,18 @@ storage.async.removeExpiredObjects() { result in
 By default, all saved objects have the same expiry as the expiry you specify in `DiskConfig` or `MemoryConfig`. You can overwrite this for a specific object by specifying `expiry` for `setObject`
 
 ```swift
-// Default cexpiry date from configuration will be applied to the item
+// Default expiry date from configuration will be applied to the item
 try? storage.setObject("This is a string", forKey: "string")
 
 // A given expiry date will be applied to the item
 try? storage.setObject(
   "This is a string",
-  forKey: "string"
+  forKey: "string",
   expiry: .date(Date().addingTimeInterval(2 * 3600))
 )
 
 // Clear expired objects
-storage.removeExpiredObjects()
+try? storage.removeExpiredObjects()
 ```
 
 ## What about images?
@@ -273,38 +214,52 @@ let icon = try? storage.object(ofType: ImageWrapper.self, forKey: "star").image
 
 If you want to load image into `UIImageView` or `NSImageView`, then we also have a nice gift for you. It's called [Imaginary](https://github.com/hyperoslo/Imaginary) and uses `Cache` under the hood to make you life easier when it comes to working with remote images.
 
-## Handling JSON response
+## Authors
 
-Most of the time, our use case is to fetch some json from backend, display it while saving the json to storage for future uses. If you're using libraries like [Alamofire](https://github.com/Alamofire/Alamofire) or [Malibu](https://github.com/hyperoslo/Malibu), you mostly get json in the form of dictionary, string, or data.
-
-`Storage` can persist `String` or `Data`. You can even save json to `Storage` using `JSONArrayWrapper` and `JSONDictionaryWrapper`, but we prefer persisting the strong typed objects, since those are the objects that you will use to display in UI. Furthermore, if the json data can't be converted to strongly typed objects, what's the point of saving it ? 😉
-
-You can use these extensions on `JSONDecoder` to decode json dictionary, string or data to objects.
-
-```swift
-let user = JSONDecoder.decode(jsonString, to: User.self)
-let cities = JSONDecoder.decode(jsonDictionary, to: [City].self)
-let dragons = JSONDecoder.decode(jsonData, to: [Dragon].self)
-```
-
-This is how you perform object converting and saving with `Alamofire`
-
-```swift
-Alamofire.request("https://gameofthrones.org/mostFavoriteCharacter").responseString { response in
-  do {
-    let user = try JSONDecoder.decode(response.result.value, to: User.self)
-    try storage.setObject(user, forKey: "most favorite character")
-  } catch {
-    print(error)
-  }
-}
-```
-
-## Author
-
-- [Hyper](http://hyper.no) made this with ❤️
-- Inline MD5 implementation from [SwiftHash](https://github.com/onmyway133/SwiftHash) 
+- Original idea: [Hyper](http://hyper.no) made this with ❤️
+- Reworked, simplified and modernized: Gabor S
 
 ## License
 
-**Cache** is available under the MIT license. See the [LICENSE](https://github.com/hyperoslo/Cache/blob/master/LICENSE.md) file for more info.
+**Cache** is available under the MIT license. 
+
+
+
+Bug fixes
+• Fixed LRU eviction sorting (was evicting newest instead of oldest)
+• Fixed Expiry​.never using hardcoded 68-year date → Date​.distant​Future
+• Fixed object(of​Type:) returning expired entries → now throws not​Found
+• Fixed Sync​Storage forced unwrap crash pattern
+• Fixed file​Manager​.create​File ignoring failure → now throws on false
+
+Modernization
+• Adopted async/await, raised platform minimums to iOS 16+/macOS 13+
+• Replaced 280-line hand-rolled MD5 with CryptoKit Insecure​.​MD5
+• Replaced NSString(string:) allocations with free as ​NSString bridging
+
+Thread safety
+• Added OSAllocated​Unfair​Lock to Memory​Storage, Disk​Storage, Hybrid​Storage
+• Made entire storage chain genuinely Sendable (eliminated all @unchecked ​Sendable on storage types)
+• Made Memory​Capsule final, private, @unchecked ​Sendable with any ​Sendable instead of Any
+
+Removed dead code/redundant layers
+• Deleted Sync​Storage, Async​Storage, Async​Storage​Aware, Result​.swift, Expiration​Mode​.swift, JSONDecoder​+​Extensions​.swift
+• Removed unused total​Size() and remove​Object​If​Expired() from DiskStorage
+• Removed deprecated Memory​Config initializer with total​Cost​Limit
+
+API improvements
+• Enriched Storage​Error with associated values (key, context, underlyingError)
+• Added Storage​.init(memory​Config:) for memory-only caching
+• Made Storage​Aware constraints consistently Codable & ​Sendable
+• Made JSONDictionary​Wrapper Sendable
+• Changed Data​Serializer from class to enum with static encoder/decoder
+
+Code quality
+• Replaced force casts with conditional casts in DiskStorage
+• Tightened access control (private over fileprivate, consolidated private extensions)
+• Renamed MD5​.​MD5() → MD5​.hash(), fixed parameter shadowing (remaining​Size)
+• Made Storage​Aware internal, removed public from Type​Wrapper​Storage methods
+• Fixed stale comment in NSImage​+​Extensions
+
+README
+• Updated to reflect all changes: removed async/Alamofire/SwiftHash sections, updated StorageError/MemoryConfig examples, documented three storage modes, fixed typos
