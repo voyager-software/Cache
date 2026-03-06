@@ -1,17 +1,10 @@
 import Foundation
-import Dispatch
 
 /// Manage storage. Use memory storage if specified.
 /// Synchronous by default. Use `async` for asynchronous operations.
 public final class Storage: Sendable {
-  /// Used for sync operations
-  private let sync: StorageAware
-
-  /// Storage used internally by both sync and async storages
+  /// Internal storage implementation
   private let internalStorage: StorageAware
-
-  /// Used for async operations
-  public let async: AsyncStorage
 
   /// Initialize storage with configuration options.
   ///
@@ -31,38 +24,29 @@ public final class Storage: Sendable {
       storage = disk
     }
 
-    // Wrapper
     self.internalStorage = TypeWrapperStorage(storage: storage)
-
-    let serialQueue = DispatchQueue(label: "Cache.Storage.SerialQueue")
-
-    // Sync
-    self.sync = SyncStorage(storage: internalStorage, serialQueue: serialQueue)
-
-    // Async
-    self.async = AsyncStorage(storage: internalStorage, serialQueue: serialQueue)
   }
 }
 
 extension Storage: StorageAware {
   public func entry<T: Codable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
-    return try self.sync.entry(ofType: type, forKey: key)
+    return try internalStorage.entry(ofType: type, forKey: key)
   }
 
   public func removeObject(forKey key: String) throws {
-    try self.sync.removeObject(forKey: key)
+    try internalStorage.removeObject(forKey: key)
   }
 
   public func setObject<T: Codable>(_ object: T, forKey key: String,
                                     expiry: Expiry? = nil) throws {
-    try self.sync.setObject(object, forKey: key, expiry: expiry)
+    try internalStorage.setObject(object, forKey: key, expiry: expiry)
   }
 
   public func removeAll() throws {
-    try self.sync.removeAll()
+    try internalStorage.removeAll()
   }
 
   public func removeExpiredObjects() throws {
-    try self.sync.removeExpiredObjects()
+    try internalStorage.removeExpiredObjects()
   }
 }

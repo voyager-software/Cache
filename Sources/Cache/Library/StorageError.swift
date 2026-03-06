@@ -11,6 +11,4 @@ public enum StorageError: Error {
   case decodingFailed(context: String, underlyingError: Error?)
   /// Can't perform Encode
   case encodingFailed(context: String, underlyingError: Error?)
-  /// The storage has been deallocated
-  case deallocated
 }

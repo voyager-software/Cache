@@ -12,26 +12,26 @@ final class TypeWrapperStorage: Sendable {
 }
 
 extension TypeWrapperStorage: StorageAware {
-  public func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
+  func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
     let wrapperEntry = try internalStorage.entry(ofType: TypeWrapper<T>.self, forKey: key)
     return Entry(object: wrapperEntry.object.object, expiry: wrapperEntry.expiry)
   }
 
-  public func removeObject(forKey key: String) throws {
+  func removeObject(forKey key: String) throws {
     try internalStorage.removeObject(forKey: key)
   }
 
-  public func setObject<T: Codable & Sendable>(_ object: T, forKey key: String,
+  func setObject<T: Codable & Sendable>(_ object: T, forKey key: String,
                                     expiry: Expiry? = nil) throws {
     let wrapper = TypeWrapper<T>(object: object)
     try internalStorage.setObject(wrapper, forKey: key, expiry: expiry)
   }
 
-  public func removeAll() throws {
+  func removeAll() throws {
     try internalStorage.removeAll()
   }
 
-  public func removeExpiredObjects() throws {
+  func removeExpiredObjects() throws {
     try internalStorage.removeExpiredObjects()
   }
 }
