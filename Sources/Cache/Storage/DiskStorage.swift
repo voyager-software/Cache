@@ -5,7 +5,7 @@ import os
 final class DiskStorage: Sendable {
     // MARK: Lifecycle
 
-    required init(config: DiskConfig, fileManager: FileManager = FileManager.default) throws {
+    init(config: DiskConfig, fileManager: FileManager = FileManager.default) throws {
         self.config = config
         self.fileManager = fileManager
 
@@ -90,7 +90,9 @@ extension DiskStorage: StorageAware {
             }
 
             let filePath = makeFilePath(for: key)
-            _ = self.fileManager.createFile(atPath: filePath, contents: data, attributes: nil)
+            guard self.fileManager.createFile(atPath: filePath, contents: data, attributes: nil) else {
+                throw StorageError.encodingFailed(context: "DiskStorage: failed to write data to path: \(filePath)", underlyingError: nil)
+            }
             try self.fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
         }
     }

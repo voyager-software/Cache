@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// Helper UIImage extension.
+/// Helper NSImage extension.
 extension NSImage {
     /// Checks if image has alpha component
     var hasAlpha: Bool {

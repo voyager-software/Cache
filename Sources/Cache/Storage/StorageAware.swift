@@ -55,7 +55,11 @@ public protocol StorageAware: Sendable {
 
 public extension StorageAware {
     func object<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> T {
-        try entry(ofType: type, forKey: key).object
+        let entry = try entry(ofType: type, forKey: key)
+        guard !entry.expiry.isExpired else {
+            throw StorageError.notFound(key: key)
+        }
+        return entry.object
     }
 
     func existsObject<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Bool {
