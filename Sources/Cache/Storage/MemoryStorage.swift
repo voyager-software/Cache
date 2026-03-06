@@ -22,7 +22,7 @@ final class MemoryStorage: Sendable {
 
 extension MemoryStorage: StorageAware {
     func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
-        guard let capsule = cache.object(forKey: NSString(string: key)) else {
+        guard let capsule = cache.object(forKey: key as NSString) else {
             throw StorageError.notFound(key: key)
         }
 
@@ -34,13 +34,13 @@ extension MemoryStorage: StorageAware {
     }
 
     func removeObject(forKey key: String) {
-        self.cache.removeObject(forKey: NSString(string: key))
+        self.cache.removeObject(forKey: key as NSString)
         self.lockedKeys.withLock { _ = $0.remove(key) }
     }
 
     func setObject(_ object: some Codable & Sendable, forKey key: String, expiry: Expiry? = nil) {
         let capsule = MemoryCapsule(value: object, expiry: .date(expiry?.date ?? self.config.expiry.date))
-        self.cache.setObject(capsule, forKey: NSString(string: key))
+        self.cache.setObject(capsule, forKey: key as NSString)
         self.lockedKeys.withLock { _ = $0.insert(key) }
     }
 
@@ -63,7 +63,7 @@ extension MemoryStorage {
      - Parameter key: Unique key to identify the object in the cache
      */
     private func removeObjectIfExpired(forKey key: String) {
-        if let capsule = cache.object(forKey: NSString(string: key)), capsule.expiry.isExpired {
+        if let capsule = cache.object(forKey: key as NSString), capsule.expiry.isExpired {
             self.removeObject(forKey: key)
         }
     }

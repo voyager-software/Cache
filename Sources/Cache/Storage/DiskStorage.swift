@@ -173,7 +173,7 @@ private extension DiskStorage {
      - Returns: A md5 string
      */
     func makeFileName(for key: String) -> String {
-        MD5.MD5(key)
+        MD5.hash(key)
     }
 
     /**
@@ -183,22 +183,6 @@ private extension DiskStorage {
      */
     func makeFilePath(for key: String) -> String {
         "\(self.path)/\(self.makeFileName(for: key))"
-    }
-
-    /// Calculates total disk cache size.
-    func totalSize() throws -> UInt64 {
-        try self.lock.withLockUnchecked {
-            var size: UInt64 = 0
-            let contents = try fileManager.contentsOfDirectory(atPath: self.path)
-            for pathComponent in contents {
-                let filePath = NSString(string: path).appendingPathComponent(pathComponent)
-                let attributes = try fileManager.attributesOfItem(atPath: filePath)
-                if let fileSize = attributes[.size] as? UInt64 {
-                    size += fileSize
-                }
-            }
-            return size
-        }
     }
 
     /// Creates the cache directory if it doesn't exist.
@@ -223,7 +207,7 @@ private extension DiskStorage {
             return
         }
 
-        var totalSize = totalSize
+        var remainingSize = totalSize
         let targetSize = self.config.maxSize / 2
 
         let sortedFiles = objects.sorted {
@@ -240,24 +224,10 @@ private extension DiskStorage {
         for file in sortedFiles {
             try self.fileManager.removeItem(at: file.url)
             if let fileSize = file.resourceValues.totalFileAllocatedSize {
-                totalSize -= UInt(fileSize)
+                remainingSize -= UInt(fileSize)
             }
-            if totalSize < targetSize {
+            if remainingSize < targetSize {
                 break
-            }
-        }
-    }
-
-    /**
-     Removes the object from the cache if it's expired.
-     - Parameter key: Unique key to identify the object in the cache
-     */
-    func removeObjectIfExpired(forKey key: String) throws {
-        try self.lock.withLockUnchecked {
-            let filePath = self.makeFilePath(for: key)
-            let attributes = try fileManager.attributesOfItem(atPath: filePath)
-            if let expiryDate = attributes[.modificationDate] as? Date, expiryDate.inThePast {
-                try self.fileManager.removeItem(atPath: filePath)
             }
         }
     }
