@@ -3,8 +3,8 @@ import os
 
 /// Use both memory and disk storage. Try on memory first.
 final class HybridStorage: Sendable {
-  let memoryStorage: MemoryStorage
-  let diskStorage: DiskStorage
+  private let memoryStorage: MemoryStorage
+  private let diskStorage: DiskStorage
   /// Lock for atomic cross-storage operations
   private let lock = OSAllocatedUnfairLock()
 

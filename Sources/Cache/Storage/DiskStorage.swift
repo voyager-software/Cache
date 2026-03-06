@@ -3,7 +3,7 @@ import os
 
 /// Save objects to file on disk
 final class DiskStorage: Sendable {
-  enum Error: Swift.Error {
+  private enum Error: Swift.Error {
     case fileEnumeratorFailed
   }
 
@@ -12,7 +12,7 @@ final class DiskStorage: Sendable {
   /// Configuration
   private let config: DiskConfig
   /// The computed path `directory+name`
-  let path: String
+  private let path: String
   /// Lock protecting all file I/O operations
   private let lock = OSAllocatedUnfairLock()
 
@@ -61,9 +61,12 @@ extension DiskStorage: StorageAware {
         "filePath": filePath
       ]
 
-      let object: T = T.self == Data.self
-        ? data as! T
-        : try DataSerializer.deserialize(data: data)
+      let object: T
+      if T.self == Data.self, let data = data as? T {
+        object = data
+      } else {
+        object = try DataSerializer.deserialize(data: data)
+      }
 
       return Entry(
         object: object,
@@ -77,9 +80,12 @@ extension DiskStorage: StorageAware {
     try lock.withLockUnchecked {
       let expiry = expiry ?? config.expiry
 
-      let data = object is Data
-        ? object as! Data
-        : try DataSerializer.serialize(object: object)
+      let data: Data
+      if let rawData = object as? Data {
+        data = rawData
+      } else {
+        data = try DataSerializer.serialize(object: object)
+      }
 
       let filePath = makeFilePath(for: key)
       _ = fileManager.createFile(atPath: filePath, contents: data, attributes: nil)
@@ -150,19 +156,13 @@ extension DiskStorage: StorageAware {
   }
 }
 
-extension DiskStorage {
-  /**
-   Sets attributes on the disk cache folder.
-   - Parameter attributes: Directory attributes
-   */
+private extension DiskStorage {
+  typealias ResourceObject = (url: Foundation.URL, resourceValues: URLResourceValues)
+
   func setDirectoryAttributes(_ attributes: [FileAttributeKey: Any]) throws {
     try fileManager.setAttributes(attributes, ofItemAtPath: path)
   }
-}
 
-typealias ResourceObject = (url: Foundation.URL, resourceValues: URLResourceValues)
-
-extension DiskStorage {
   /**
    Builds file name from the key.
    - Parameter key: Unique key to identify the object in the cache

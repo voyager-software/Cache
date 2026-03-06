@@ -60,7 +60,7 @@ extension MemoryStorage {
    Removes the object from the cache if it's expired.
    - Parameter key: Unique key to identify the object in the cache
    */
-  func removeObjectIfExpired(forKey key: String) {
+  private func removeObjectIfExpired(forKey key: String) {
     if let capsule = cache.object(forKey: NSString(string: key)), capsule.expiry.isExpired {
       removeObject(forKey: key)
     }
