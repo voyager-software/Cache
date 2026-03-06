@@ -4,14 +4,13 @@ import Foundation
 public final class Storage: Sendable {
     // MARK: Lifecycle
 
-    /// Initialize storage with configuration options.
+    /// Initialize disk-based storage, optionally backed by a memory cache.
     ///
     /// - Parameters:
     ///   - diskConfig: Configuration for disk storage
-    ///   - memoryConfig: Optional. Pass config if you want memory cache
+    ///   - memoryConfig: Optional. Pass config to add an in-memory layer
     /// - Throws: Throw StorageError if any.
     public init(diskConfig: DiskConfig, memoryConfig: MemoryConfig? = nil) throws {
-        // Disk or Hybrid
         let storage: StorageAware
         let disk = try DiskStorage(config: diskConfig)
 
@@ -24,6 +23,14 @@ public final class Storage: Sendable {
         }
 
         self.internalStorage = TypeWrapperStorage(storage: storage)
+    }
+
+    /// Initialize memory-only storage.
+    ///
+    /// - Parameter memoryConfig: Configuration for memory storage
+    public init(memoryConfig: MemoryConfig) {
+        let memory = MemoryStorage(config: memoryConfig)
+        self.internalStorage = TypeWrapperStorage(storage: memory)
     }
 
     // MARK: Private
