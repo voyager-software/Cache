@@ -69,18 +69,14 @@ extension MemoryStorage {
 
 /// Helper class to hold cached instance and expiry date.
 /// Used in memory storage to work with NSCache.
-class MemoryCapsule: NSObject {
+/// Immutable and only accessed through NSCache (which is thread-safe).
+private final class MemoryCapsule: NSObject, @unchecked Sendable {
   /// Object to be cached
-  let object: Any
+  let object: any Sendable
   /// Expiration date
   let expiry: Expiry
 
-  /**
-   Creates a new instance of Capsule.
-   - Parameter value: Object to be cached
-   - Parameter expiry: Expiration date
-   */
-  init(value: Any, expiry: Expiry) {
+  init(value: any Sendable, expiry: Expiry) {
     self.object = value
     self.expiry = expiry
   }
