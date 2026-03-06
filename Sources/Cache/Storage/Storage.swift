@@ -44,6 +44,10 @@ extension Storage: StorageAware {
         try self.internalStorage.entry(ofType: type, forKey: key)
     }
 
+    public func existsObject(forKey key: String) throws -> Bool {
+        try internalStorage.existsObject(forKey: key)
+    }
+
     public func removeObject(forKey key: String) throws {
         try self.internalStorage.removeObject(forKey: key)
     }

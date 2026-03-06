@@ -21,6 +21,10 @@ extension TypeWrapperStorage: StorageAware {
         return Entry(object: wrapperEntry.object.object, expiry: wrapperEntry.expiry)
     }
 
+    func existsObject(forKey key: String) throws -> Bool {
+        try internalStorage.existsObject(forKey: key)
+    }
+
     func removeObject(forKey key: String) throws {
         try self.internalStorage.removeObject(forKey: key)
     }

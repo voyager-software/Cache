@@ -31,10 +31,11 @@ public protocol StorageAware: Sendable {
     func setObject(_ object: some Codable & Sendable, forKey key: String, expiry: Expiry?) throws
 
     /**
-     Check if an object exist by the given key.
+     Check if a non-expired object exists for the given key.
+     Does not deserialize the object.
      - Parameter key: Unique key to identify the object.
      */
-    func existsObject(ofType type: (some Codable & Sendable).Type, forKey key: String) throws -> Bool
+    func existsObject(forKey key: String) throws -> Bool
 
     /**
      Removes all objects from the cache storage.
@@ -46,11 +47,6 @@ public protocol StorageAware: Sendable {
      */
     func removeExpiredObjects() throws
 
-    /**
-      Check if an expired object by the given key.
-      - Parameter key: Unique key to identify the object.
-     */
-    func isExpiredObject(ofType type: (some Codable & Sendable).Type, forKey key: String) throws -> Bool
 }
 
 public extension StorageAware {
@@ -60,25 +56,5 @@ public extension StorageAware {
             throw StorageError.notFound(key: key)
         }
         return entry.object
-    }
-
-    func existsObject<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Bool {
-        do {
-            let _: T = try object(ofType: type, forKey: key)
-            return true
-        }
-        catch {
-            return false
-        }
-    }
-
-    func isExpiredObject(ofType type: (some Codable & Sendable).Type, forKey key: String) throws -> Bool {
-        do {
-            let entry = try self.entry(ofType: type, forKey: key)
-            return entry.expiry.isExpired
-        }
-        catch {
-            return true
-        }
     }
 }

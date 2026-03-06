@@ -143,7 +143,7 @@ let score = try? storage.object(ofType: Int.self, forKey: "score")
 let favoriteCharacter = try? storage.object(ofType: String.self, forKey: "my favorite city")
 
 // Check if an object exists
-let hasFavoriteCharacter = try? storage.existsObject(ofType: String.self, forKey: "my favorite city")
+let hasFavoriteCharacter = try? storage.existsObject(forKey: "my favorite city")
 
 // Remove an object in storage
 try? storage.removeObject(forKey: "my favorite city")

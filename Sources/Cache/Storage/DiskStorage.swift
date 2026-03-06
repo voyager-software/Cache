@@ -97,6 +97,20 @@ extension DiskStorage: StorageAware {
         }
     }
 
+    func existsObject(forKey key: String) throws -> Bool {
+        try lock.withLockUnchecked {
+            let filePath = makeFilePath(for: key)
+            guard fileManager.fileExists(atPath: filePath) else {
+                return false
+            }
+            let attributes = try fileManager.attributesOfItem(atPath: filePath)
+            guard let date = attributes[.modificationDate] as? Date else {
+                return false
+            }
+            return !date.inThePast
+        }
+    }
+
     func removeObject(forKey key: String) throws {
         try self.lock.withLockUnchecked {
             try self.fileManager.removeItem(atPath: makeFilePath(for: key))

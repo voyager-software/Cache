@@ -33,6 +33,13 @@ extension MemoryStorage: StorageAware {
         return Entry(object: object, expiry: capsule.expiry)
     }
 
+    func existsObject(forKey key: String) -> Bool {
+        guard let capsule = cache.object(forKey: key as NSString) else {
+            return false
+        }
+        return !capsule.expiry.isExpired
+    }
+
     func removeObject(forKey key: String) {
         self.cache.removeObject(forKey: key as NSString)
         self.lockedKeys.withLock { _ = $0.remove(key) }

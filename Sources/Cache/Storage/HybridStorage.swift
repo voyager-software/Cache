@@ -33,6 +33,15 @@ extension HybridStorage: StorageAware {
         }
     }
 
+    func existsObject(forKey key: String) throws -> Bool {
+        try lock.withLockUnchecked {
+            if memoryStorage.existsObject(forKey: key) {
+                return true
+            }
+            return try diskStorage.existsObject(forKey: key)
+        }
+    }
+
     func removeObject(forKey key: String) throws {
         try self.lock.withLockUnchecked {
             self.memoryStorage.removeObject(forKey: key)
