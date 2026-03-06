@@ -9,12 +9,12 @@ struct User: Codable {
     let lastName: String
 
     var name: String {
-        return "\(firstName) \(lastName)"
+        "\(self.firstName) \(self.lastName)"
     }
 }
 
 let diskConfig = DiskConfig(name: "UserCache")
-let memoryConfig = MemoryConfig(expiry: .never, countLimit: 10, totalCostLimit: 10)
+let memoryConfig = MemoryConfig(expiry: .never, countLimit: 10)
 
 let storage = try! Storage(diskConfig: diskConfig, memoryConfig: memoryConfig)
 
@@ -25,26 +25,26 @@ let key = "\(user.id)"
 try storage.setObject(user, forKey: key)
 
 // Fetch object from the cache
-storage.async.object(ofType: User.self, forKey: key) { result in
-    switch result {
-    case .value(let user):
-        print(user.name)
-    case .error(let error):
-        print(error)
-    }
+
+do {
+    let user = try storage.object(ofType: User.self, forKey: key)
+    print(user.name)
+}
+catch {
+    print(error)
 }
 
 // Remove object from the cache
 try storage.removeObject(forKey: key)
 
 // Try to fetch removed object from the cache
-storage.async.object(ofType: User.self, forKey: key) { result in
-    switch result {
-    case .value(let user):
-        print(user.name)
-    case .error:
-        print("no such object")
-    }
+
+do {
+    let user = try storage.object(ofType: User.self, forKey: key)
+    print(user.name)
+}
+catch {
+    print(error)
 }
 
 // Clear cache
