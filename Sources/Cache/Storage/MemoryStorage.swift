@@ -74,7 +74,13 @@ extension MemoryStorage {
      */
     private func removeObjectIfExpired(forKey key: String) {
         guard let capsule = cache.object(forKey: key as NSString) else {
-            self.lockedKeys.withLock { _ = $0.remove(key) }
+            // Checked again under the lock, because `setObject` may have just stored this key again.
+            // It adds the key under this lock after storing the object, so it can't be missed here.
+            self.lockedKeys.withLock { keys in
+                if self.cache.object(forKey: key as NSString) == nil {
+                    keys.remove(key)
+                }
+            }
             return
         }
         if capsule.expiry.isExpired {

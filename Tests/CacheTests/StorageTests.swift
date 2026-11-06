@@ -265,16 +265,14 @@ struct StorageTests {
 struct MemoryStorageTests {
     @Test("Purging forgets the keys of objects NSCache has evicted")
     func forgetsEvictedKeys() {
-        let storage = MemoryStorage(config: MemoryConfig(countLimit: 10))
-        for index in 0 ..< 1000 {
-            storage.setObject(index, forKey: "key-\(index)", expiry: .never)
-        }
-        #expect(storage.lockedKeys.withLock { $0.count } == 1000)
+        let storage = MemoryStorage(config: MemoryConfig())
+        // What eviction leaves behind: a tracked key with no object. Set up by hand, because
+        // NSCache decides for itself when to evict.
+        storage.lockedKeys.withLock { _ = $0.insert("evicted") }
 
         storage.removeExpiredObjects()
 
-        // NSCache treats its limit as a guide, so this doesn't ask for exactly 10
-        #expect(storage.lockedKeys.withLock { $0.count } < 100)
+        #expect(storage.lockedKeys.withLock { $0 }.isEmpty)
     }
 
     @Test("Purging keeps the keys of objects that are still there")
