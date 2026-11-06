@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.10.0
 
 Bug fixes
 - Writing brings back a cache folder that was deleted, for example when the system purges Caches. `removeAll()` no longer fails in that case either, and brings the folder back too.
