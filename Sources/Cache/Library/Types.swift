@@ -1,10 +1,8 @@
-#if os(iOS) || os(tvOS) || os(visionOS)
+#if canImport(UIKit)
 import UIKit
 
 public typealias Image = UIImage
-#elseif os(watchOS)
-
-#elseif os(OSX)
+#elseif os(macOS)
 import AppKit
 
 public typealias Image = NSImage

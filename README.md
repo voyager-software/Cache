@@ -8,9 +8,7 @@
   * [APIs](#apis)
   * [Expiry date](#expiry-date)
 * [What about images?](#what-about-images)
-* [Installation](#installation)
-* [Author](#author)
-* [Contributing](#contributing)
+* [Authors](#authors)
 * [License](#license)
 
 ## Description
@@ -66,7 +64,7 @@ The supported types are
 
 #### Error handling
 
-Error handling is done via `try catch`. `Storage` throws errors in terms of `StorageError`.
+Error handling is done via `try catch`. `Storage` throws `StorageError` when an object is missing or can't be encoded, decoded or written. Other file system errors, such as a protected file that can't be read while the device is locked, are passed through unchanged.
 
 ```swift
 public enum StorageError: Error {
@@ -76,12 +74,14 @@ public enum StorageError: Error {
   case typeNotMatch(key: String)
   /// The file attributes are malformed
   case malformedFileAttributes(key: String)
-  /// Can't perform Decode
+  /// The stored data can't be decoded as the requested type
   case decodingFailed(context: String, underlyingError: Error?)
-  /// Can't perform Encode
+  /// The object can't be encoded, or the encoded data can't be written to disk
   case encodingFailed(context: String, underlyingError: Error?)
 }
 ```
+
+A type mismatch is reported as `typeNotMatch` from memory, and as `decodingFailed` from disk.
 
 There can be errors because of disk problem or type mismatch when loading from storage, so if want to handle errors, you need to do `try catch`
 
@@ -104,7 +104,8 @@ let diskConfig = DiskConfig(
   // Expiry date that will be applied by default for every added object
   // if it's not overridden in the `setObject(forKey:expiry:)` method
   expiry: .date(Date().addingTimeInterval(2*3600)),
-  // Maximum size of the disk cache storage (in bytes)
+  // Maximum size of the disk cache storage (in bytes). 0 means no limit. Only enforced by `removeExpiredObjects()`,
+  // which then removes the objects closest to expiring until the storage is under half of this size.
   maxSize: 10000,
   // Where to store the disk cache. If nil, it is placed in `cachesDirectory` directory.
   directory: try! FileManager.default.url(for: .documentDirectory, in: .userDomainMask, 
@@ -157,16 +158,15 @@ try? storage.removeExpiredObjects()
 
 #### Entry
 
-There is time you want to get object together with its expiry information and meta data. You can use `Entry`
+There is time you want to get object together with its expiry information. You can use `Entry`
 
 ```swift
 let entry = try? storage.entry(ofType: String.self, forKey: "my favorite city")
 print(entry?.object)
 print(entry?.expiry)
-print(entry?.meta)
 ```
 
-`meta` may contain file information if the object was fetched from disk storage.
+Unlike `object(ofType:forKey:)`, `entry(ofType:forKey:)` also returns an object that has expired, so check `entry.expiry.isExpired`.
 
 #### Custom types
 
@@ -212,8 +212,6 @@ try? storage.setObject(wrapper, forKey: "star")
 let icon = try? storage.object(ofType: ImageWrapper.self, forKey: "star").image
 ```
 
-If you want to load image into `UIImageView` or `NSImageView`, then we also have a nice gift for you. It's called [Imaginary](https://github.com/hyperoslo/Imaginary) and uses `Cache` under the hood to make you life easier when it comes to working with remote images.
-
 ## Authors
 
 - Original idea: [Hyper](http://hyper.no) made this with ❤️
@@ -222,44 +220,3 @@ If you want to load image into `UIImageView` or `NSImageView`, then we also have
 ## License
 
 **Cache** is available under the MIT license. 
-
-
-
-Bug fixes
-• Fixed LRU eviction sorting (was evicting newest instead of oldest)
-• Fixed Expiry​.never using hardcoded 68-year date → Date​.distant​Future
-• Fixed object(of​Type:) returning expired entries → now throws not​Found
-• Fixed Sync​Storage forced unwrap crash pattern
-• Fixed file​Manager​.create​File ignoring failure → now throws on false
-
-Modernization
-• Adopted async/await, raised platform minimums to iOS 16+/macOS 13+
-• Replaced 280-line hand-rolled MD5 with CryptoKit Insecure​.​MD5
-• Replaced NSString(string:) allocations with free as ​NSString bridging
-
-Thread safety
-• Added OSAllocated​Unfair​Lock to Memory​Storage, Disk​Storage, Hybrid​Storage
-• Made entire storage chain genuinely Sendable (eliminated all @unchecked ​Sendable on storage types)
-• Made Memory​Capsule final, private, @unchecked ​Sendable with any ​Sendable instead of Any
-
-Removed dead code/redundant layers
-• Deleted Sync​Storage, Async​Storage, Async​Storage​Aware, Result​.swift, Expiration​Mode​.swift, JSONDecoder​+​Extensions​.swift
-• Removed unused total​Size() and remove​Object​If​Expired() from DiskStorage
-• Removed deprecated Memory​Config initializer with total​Cost​Limit
-
-API improvements
-• Enriched Storage​Error with associated values (key, context, underlyingError)
-• Added Storage​.init(memory​Config:) for memory-only caching
-• Made Storage​Aware constraints consistently Codable & ​Sendable
-• Made JSONDictionary​Wrapper Sendable
-• Changed Data​Serializer from class to enum with static encoder/decoder
-
-Code quality
-• Replaced force casts with conditional casts in DiskStorage
-• Tightened access control (private over fileprivate, consolidated private extensions)
-• Renamed MD5​.​MD5() → MD5​.hash(), fixed parameter shadowing (remaining​Size)
-• Made Storage​Aware internal, removed public from Type​Wrapper​Storage methods
-• Fixed stale comment in NSImage​+​Extensions
-
-README
-• Updated to reflect all changes: removed async/Alamofire/SwiftHash sections, updated StorageError/MemoryConfig examples, documented three storage modes, fixed typos

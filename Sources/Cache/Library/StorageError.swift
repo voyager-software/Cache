@@ -7,8 +7,8 @@ public enum StorageError: Error {
     case typeNotMatch(key: String)
     /// The file attributes are malformed
     case malformedFileAttributes(key: String)
-    /// Can't perform Decode
+    /// The stored data can't be decoded as the requested type
     case decodingFailed(context: String, underlyingError: Error?)
-    /// Can't perform Encode
+    /// The object can't be encoded, or the encoded data can't be written to disk
     case encodingFailed(context: String, underlyingError: Error?)
 }

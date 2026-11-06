@@ -4,7 +4,7 @@ import Foundation
  Helper enum to set the expiration date
  */
 public enum Expiry: Sendable {
-    /// Object will be expired in the nearest future
+    /// Object will never expire
     case never
     /// Object will be expired in the specified amount of seconds
     case seconds(TimeInterval)

@@ -10,12 +10,15 @@ final class MemoryStorage: Sendable {
         self.cache.countLimit = Int(config.countLimit)
     }
 
+    // MARK: Internal
+
+    /// Memory cache keys, protected by a lock
+    let lockedKeys = OSAllocatedUnfairLock(initialState: Set<String>())
+
     // MARK: Private
 
     /// Memory cache instance (NSCache is thread-safe)
     private nonisolated(unsafe) let cache = NSCache<NSString, MemoryCapsule>()
-    /// Memory cache keys, protected by a lock
-    private let lockedKeys = OSAllocatedUnfairLock(initialState: Set<String>())
     /// Configuration
     private let config: MemoryConfig
 }
@@ -66,11 +69,21 @@ extension MemoryStorage: StorageAware {
 
 extension MemoryStorage {
     /**
-     Removes the object from the cache if it's expired.
+     Removes the object from the cache if it's expired, and forgets the key if `NSCache` has already evicted the object.
      - Parameter key: Unique key to identify the object in the cache
      */
     private func removeObjectIfExpired(forKey key: String) {
-        if let capsule = cache.object(forKey: key as NSString), capsule.expiry.isExpired {
+        guard let capsule = cache.object(forKey: key as NSString) else {
+            // Checked again under the lock, because `setObject` may have just stored this key again.
+            // It adds the key under this lock after storing the object, so it can't be missed here.
+            self.lockedKeys.withLock { keys in
+                if self.cache.object(forKey: key as NSString) == nil {
+                    keys.remove(key)
+                }
+            }
+            return
+        }
+        if capsule.expiry.isExpired {
             self.removeObject(forKey: key)
         }
     }
