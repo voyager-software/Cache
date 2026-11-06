@@ -21,15 +21,6 @@ final class DiskStorage: Sendable {
         // path
         self.path = url.appendingPathComponent(config.name, isDirectory: true).path
         try createDirectory()
-
-        // protection
-        #if os(iOS) || os(tvOS)
-        if let protectionType = config.protectionType {
-            try setDirectoryAttributes([
-                FileAttributeKey.protectionKey: protectionType,
-            ])
-        }
-        #endif
     }
 
     // MARK: Private
@@ -52,7 +43,13 @@ extension DiskStorage: StorageAware {
     func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
         try self.lock.withLockUnchecked {
             let filePath = makeFilePath(for: key)
-            let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+            let data: Data
+            do {
+                data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+            }
+            catch CocoaError.fileReadNoSuchFile {
+                throw StorageError.notFound(key: key)
+            }
             let attributes = try fileManager.attributesOfItem(atPath: filePath)
 
             guard let date = attributes[.modificationDate] as? Date else {
@@ -67,7 +64,7 @@ extension DiskStorage: StorageAware {
                 data
             }
             else {
-                try DataSerializer.deserialize(data: data)
+                try decode(data, forKey: key)
             }
 
             return Entry(
@@ -86,13 +83,11 @@ extension DiskStorage: StorageAware {
                 rawData
             }
             else {
-                try DataSerializer.serialize(object: object)
+                try encode(object, forKey: key)
             }
 
             let filePath = makeFilePath(for: key)
-            guard self.fileManager.createFile(atPath: filePath, contents: data, attributes: nil) else {
-                throw StorageError.encodingFailed(context: "DiskStorage: failed to write data to path: \(filePath)", underlyingError: nil)
-            }
+            try writeFile(data, atPath: filePath)
             try self.fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
         }
     }
@@ -113,13 +108,13 @@ extension DiskStorage: StorageAware {
 
     func removeObject(forKey key: String) throws {
         try self.lock.withLockUnchecked {
-            try self.fileManager.removeItem(atPath: makeFilePath(for: key))
+            try removeItemIfPresent(atPath: makeFilePath(for: key))
         }
     }
 
     func removeAll() throws {
         try self.lock.withLockUnchecked {
-            try self.fileManager.removeItem(atPath: self.path)
+            try removeItemIfPresent(atPath: self.path)
             try createDirectory()
         }
     }
@@ -177,10 +172,6 @@ extension DiskStorage: StorageAware {
 private extension DiskStorage {
     typealias ResourceObject = (url: Foundation.URL, resourceValues: URLResourceValues)
 
-    func setDirectoryAttributes(_ attributes: [FileAttributeKey: Any]) throws {
-        try self.fileManager.setAttributes(attributes, ofItemAtPath: self.path)
-    }
-
     /**
      Builds file name from the key.
      - Parameter key: Unique key to identify the object in the cache
@@ -199,15 +190,73 @@ private extension DiskStorage {
         "\(self.path)/\(self.makeFileName(for: key))"
     }
 
-    /// Creates the cache directory if it doesn't exist.
+    /// Creates the cache directory if it doesn't exist, and applies the configured file protection.
     /// Must be called while holding the lock, or during init.
     func createDirectory() throws {
-        guard !self.fileManager.fileExists(atPath: self.path) else {
-            return
+        if !self.fileManager.fileExists(atPath: self.path) {
+            try self.fileManager.createDirectory(atPath: self.path, withIntermediateDirectories: true,
+                                                 attributes: nil)
         }
 
-        try self.fileManager.createDirectory(atPath: self.path, withIntermediateDirectories: true,
-                                             attributes: nil)
+        #if os(iOS) || os(tvOS)
+        if let protectionType = self.config.protectionType {
+            try self.fileManager.setAttributes([.protectionKey: protectionType], ofItemAtPath: self.path)
+        }
+        #endif
+    }
+
+    /// Writes the file, bringing the cache directory back first if it's gone. The system can purge
+    /// the Caches directory while the app is running.
+    /// Must be called while holding the lock.
+    func writeFile(_ data: Data, atPath filePath: String) throws {
+        let url = URL(fileURLWithPath: filePath)
+        do {
+            do {
+                try data.write(to: url, options: .atomic)
+            }
+            catch CocoaError.fileNoSuchFile {
+                try createDirectory()
+                try data.write(to: url, options: .atomic)
+            }
+        }
+        catch {
+            throw StorageError.encodingFailed(context: "DiskStorage: failed to write data to path: \(filePath)", underlyingError: error)
+        }
+    }
+
+    /// Removes the item, and does nothing if it's already gone.
+    /// Must be called while holding the lock.
+    func removeItemIfPresent(atPath path: String) throws {
+        do {
+            try self.fileManager.removeItem(atPath: path)
+        }
+        catch CocoaError.fileNoSuchFile {}
+    }
+
+    /// Wraps encoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
+    func encode(_ object: some Encodable, forKey key: String) throws -> Data {
+        do {
+            return try DataSerializer.serialize(object: object)
+        }
+        catch let error as StorageError {
+            throw error
+        }
+        catch {
+            throw StorageError.encodingFailed(context: "DiskStorage: failed to encode object for key: \(key)", underlyingError: error)
+        }
+    }
+
+    /// Wraps decoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
+    func decode<T: Decodable>(_ data: Data, forKey key: String) throws -> T {
+        do {
+            return try DataSerializer.deserialize(data: data)
+        }
+        catch let error as StorageError {
+            throw error
+        }
+        catch {
+            throw StorageError.decodingFailed(context: "DiskStorage: failed to decode object for key: \(key)", underlyingError: error)
+        }
     }
 
     /**

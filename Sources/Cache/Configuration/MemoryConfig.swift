@@ -11,7 +11,7 @@ public struct MemoryConfig: Sendable {
     // MARK: Public
 
     /// Expiry date that will be applied by default for every added object
-    /// if it's not overridden in the add(key: object: expiry: completion:) method
+    /// if it's not overridden in the `setObject(_:forKey:expiry:)` method
     public let expiry: Expiry
     /// The maximum number of objects in memory the cache should hold. 0 means no limit.
     public let countLimit: UInt

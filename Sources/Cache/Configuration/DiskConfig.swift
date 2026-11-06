@@ -4,11 +4,13 @@ public struct DiskConfig: Sendable {
     /// The name of disk storage, this will be used as folder name within directory
     public let name: String
     /// Expiry date that will be applied by default for every added object
-    /// if it's not overridden in the add(key: object: expiry: completion:) method
+    /// if it's not overridden in the `setObject(_:forKey:expiry:)` method
     public let expiry: Expiry
-    /// Maximum size of the disk cache storage (in bytes)
+    /// Maximum size of the disk cache storage (in bytes). 0 means no limit.
+    /// Only enforced by `removeExpiredObjects()`, which then removes the objects closest to
+    /// expiring until the storage is under half of this size.
     public let maxSize: UInt
-    /// A folder to store the disk cache contents. Defaults to a prefixed directory in Caches if nil
+    /// A folder to store the disk cache contents. Defaults to the Caches directory if nil
     public let directory: URL?
     #if os(iOS) || os(tvOS)
     /// Data protection is used to store files in an encrypted format on disk and to decrypt them on demand.

@@ -23,5 +23,8 @@ let package = Package(
             resources: [
                .copy("Resources/PrivacyInfo.xcprivacy")
             ]),
+        .testTarget(
+            name: "CacheTests",
+            dependencies: ["Cache"]),
     ]
 )
