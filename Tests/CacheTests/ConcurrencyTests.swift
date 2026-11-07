@@ -99,23 +99,15 @@ struct ConcurrencyTests {
         }
     }
 
-    @Test("Waiting for another write doesn't use up an object's expiry")
-    func expiryStartsAfterWaiting() throws {
-        let sandbox = try Sandbox()
-        let fileManager = HookedFileManager()
-        let disk = try DiskStorage(config: DiskConfig(name: "cache", directory: sandbox.root), fileManager: fileManager)
-        let storage = HybridStorage(memoryStorage: MemoryStorage(config: MemoryConfig()), diskStorage: disk)
-        let gate = Gate()
-        let slowFile = fileName(for: "slow")
-        fileManager.beforeSettingAttributes = { path in
-            if path.hasSuffix(slowFile) {
-                gate.enter()
-            }
-        }
+    /// Saves an object with a short expiry while `holdUp` is stuck at the gate, and waits longer than
+    /// that expiry before letting it go. The object's expiry should only start once it got through.
+    private func expectExpiryStartsAfterWaiting(storage: HybridStorage, sandbox: Sandbox, gate: Gate,
+                                                holdUp: @escaping @Sendable () -> Void) throws
+    {
         let finished = DispatchSemaphore(value: 0)
         var endOfWait = Date.distantFuture
 
-        try whileHeldUp(at: gate, write: { try? storage.setObject(1, forKey: "slow", expiry: nil) }) {
+        try whileHeldUp(at: gate, write: holdUp) {
             DispatchQueue.global().async {
                 try? storage.setObject(2, forKey: "short", expiry: .seconds(0.1))
                 finished.signal()
@@ -130,6 +122,47 @@ struct ConcurrencyTests {
         let file = sandbox.folder().appendingPathComponent(fileName(for: "short"))
         let expiry = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
         #expect(try #require(expiry) > endOfWait)
+    }
+
+    @Test("Waiting for another write doesn't use up an object's expiry")
+    func expiryStartsAfterWaiting() throws {
+        let sandbox = try Sandbox()
+        let fileManager = HookedFileManager()
+        let disk = try DiskStorage(config: DiskConfig(name: "cache", directory: sandbox.root), fileManager: fileManager)
+        let storage = HybridStorage(memoryStorage: MemoryStorage(config: MemoryConfig()), diskStorage: disk)
+        let gate = Gate()
+        let slowFile = fileName(for: "slow")
+        fileManager.beforeSettingAttributes = { path in
+            if path.hasSuffix(slowFile) {
+                gate.enter()
+            }
+        }
+
+        try expectExpiryStartsAfterWaiting(storage: storage, sandbox: sandbox, gate: gate) {
+            try? storage.setObject(1, forKey: "slow", expiry: nil)
+        }
+    }
+
+    /// Disk reads don't take hybrid storage's own lock, only the disk's.
+    @Test("Waiting for a disk read doesn't use up an object's expiry")
+    func expiryStartsAfterWaitingForRead() throws {
+        let sandbox = try Sandbox()
+        let fileManager = HookedFileManager()
+        let disk = try DiskStorage(config: DiskConfig(name: "cache", directory: sandbox.root), fileManager: fileManager)
+        // On disk only, so that reading it goes to the disk
+        try disk.setObject(1, forKey: "slow")
+        let storage = HybridStorage(memoryStorage: MemoryStorage(config: MemoryConfig()), diskStorage: disk)
+        let gate = Gate()
+        let slowFile = fileName(for: "slow")
+        fileManager.beforeReadingAttributes = { path in
+            if path.hasSuffix(slowFile) {
+                gate.enter()
+            }
+        }
+
+        try expectExpiryStartsAfterWaiting(storage: storage, sandbox: sandbox, gate: gate) {
+            _ = try? storage.entry(ofType: Int.self, forKey: "slow")
+        }
     }
 
     // MARK: Using the storage from Codable code

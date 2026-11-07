@@ -78,6 +78,12 @@ struct UnencodableWithStorageError: Codable, Sendable {
 final class HookedFileManager: FileManager, @unchecked Sendable {
     var beforeRemoving: (String) throws -> Void = { _ in }
     var beforeSettingAttributes: (String) -> Void = { _ in }
+    var beforeReadingAttributes: (String) -> Void = { _ in }
+
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        self.beforeReadingAttributes(path)
+        return try super.attributesOfItem(atPath: path)
+    }
 
     override func removeItem(atPath path: String) throws {
         try self.beforeRemoving(path)

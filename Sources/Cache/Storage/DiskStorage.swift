@@ -181,12 +181,17 @@ extension DiskStorage {
         }
     }
 
-    func write(_ data: Data, forKey key: String, expiry: Expiry?) throws {
+    /// Works out the expiry date while holding the lock, so that waiting for it doesn't use up the
+    /// object's lifetime.
+    /// - Returns: The expiry date the file got
+    @discardableResult
+    func write(_ data: Data, forKey key: String, expiry: Expiry?) throws -> Date {
         try self.lock.withLockUnchecked {
-            let expiry = expiry ?? self.config.expiry
             let filePath = makeFilePath(for: key)
             try writeFile(data, atPath: filePath)
-            try self.fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
+            let date = (expiry ?? self.config.expiry).date
+            try self.fileManager.setAttributes([.modificationDate: date], ofItemAtPath: filePath)
+            return date
         }
     }
 }
