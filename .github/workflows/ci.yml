@@ -7,24 +7,10 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-hang:
-    name: Sample the hung tests
+  diagnose-url:
+    name: Print how URL handles NUL
     runs-on: macos-26
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - run: swift build --build-tests
-      - name: Run the tests, then sample them once they've had time to finish
-        run: |
-          swift test --skip-build > test.log 2>&1 &
-          for i in $(seq 1 24); do
-            sleep 5
-            grep -q -E 'Test run with .* (passed|failed)' test.log && break
-          done
-          echo "=== test.log tail"; tail -40 test.log
-          for p in $(pgrep -f 'swiftpm-testing-helper|CachePackageTests'); do
-            echo "=== process $p: $(ps -o command= -p $p | cut -c1-160)"
-            sample "$p" 3 -file "sample-$p.txt" >/dev/null 2>&1 || true
-            grep -E 'Thread_|CacheTests|Cache\.|Cache[A-Z]|semaphore|_dispatch_semaphore|os_unfair_lock|ulock|Gate|swift_task|concurrentPerform' "sample-$p.txt" | cut -c1-220 | head -400
-          done
-          pkill -f swiftpm-testing-helper || true
+      - run: sw_vers && swiftc -o urlnul .github/diag/urlnul.swift && ./urlnul
