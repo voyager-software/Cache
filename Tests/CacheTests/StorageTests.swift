@@ -127,6 +127,36 @@ struct StorageTests {
         #expect(underlying != nil)
     }
 
+    // MARK: Failed writes
+
+    @Test("A failed disk write leaves hybrid storage with the old value")
+    func failedWriteKeepsOldValue() throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(.hybrid)
+        try storage.setObject(1, forKey: "key")
+        // A file where the folder should be, which recreating the folder can't get around
+        try FileManager.default.removeItem(at: sandbox.folder())
+        try Data().write(to: sandbox.folder())
+
+        #expect(throws: StorageError.self) {
+            try storage.setObject(2, forKey: "key")
+        }
+
+        #expect(try storage.object(ofType: Int.self, forKey: "key") == 1)
+    }
+
+    @Test("An object that can't be encoded doesn't end up in hybrid storage's memory")
+    func failedEncodingLeavesMemoryAlone() throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(.hybrid)
+
+        #expect(throws: StorageError.self) {
+            try storage.setObject(Unencodable(), forKey: "key")
+        }
+
+        #expect(try storage.existsObject(forKey: "key") == false)
+    }
+
     // MARK: Removing
 
     @Test("Removing a missing key succeeds", arguments: Sandbox.Mode.allCases)
@@ -285,6 +315,116 @@ struct MemoryStorageTests {
 
         #expect(storage.lockedKeys.withLock { $0 } == ["kept"])
         #expect(try storage.object(ofType: Int.self, forKey: "kept") == 1)
+    }
+}
+
+/// Runs a hook before each removal, which can fail it or delete the file first.
+private final class HookedFileManager: FileManager, @unchecked Sendable {
+    var beforeRemoving: (String) throws -> Void = { _ in }
+
+    override func removeItem(atPath path: String) throws {
+        try self.beforeRemoving(path)
+        try super.removeItem(atPath: path)
+    }
+
+    override func removeItem(at url: URL) throws {
+        try self.beforeRemoving(url.path)
+        try super.removeItem(at: url)
+    }
+}
+
+@Suite("Purging with failures")
+struct PurgeFailureTests {
+    struct RemovalFailed: Error {}
+
+    @Test("A file that can't be removed doesn't stop the others, and the failure is still thrown")
+    func continuesPastFailure() throws {
+        let sandbox = try Sandbox()
+        let fileManager = HookedFileManager()
+        let storage = try DiskStorage(config: DiskConfig(name: "cache", directory: sandbox.root), fileManager: fileManager)
+        for key in ["a", "b", "c"] {
+            try storage.setObject(1, forKey: key, expiry: .seconds(-10))
+        }
+        // Whichever file comes first, so that stopping at the failure would leave the others behind
+        var failedFile: String?
+        fileManager.beforeRemoving = { path in
+            if failedFile == nil {
+                failedFile = URL(fileURLWithPath: path).lastPathComponent
+            }
+            if URL(fileURLWithPath: path).lastPathComponent == failedFile {
+                throw RemovalFailed()
+            }
+        }
+
+        #expect(throws: RemovalFailed.self) {
+            try storage.removeExpiredObjects()
+        }
+
+        #expect(try sandbox.files() == [try #require(failedFile)])
+    }
+
+    @Test("A file that vanishes during the purge isn't a failure")
+    func vanishedFileIsFine() throws {
+        let sandbox = try Sandbox()
+        let fileManager = HookedFileManager()
+        let storage = try DiskStorage(config: DiskConfig(name: "cache", directory: sandbox.root), fileManager: fileManager)
+        for key in ["a", "b", "c"] {
+            try storage.setObject(1, forKey: key, expiry: .seconds(-10))
+        }
+        fileManager.beforeRemoving = { path in
+            if path.hasSuffix(MD5.hash("b")), FileManager.default.fileExists(atPath: path) {
+                try FileManager.default.removeItem(atPath: path)
+            }
+        }
+
+        try storage.removeExpiredObjects()
+
+        #expect(try sandbox.files().isEmpty)
+    }
+
+    @Test("Going over maxSize still evicts the others when one can't be removed")
+    func evictionContinuesPastFailure() throws {
+        let sandbox = try Sandbox()
+        let fileManager = HookedFileManager()
+        let storage = try DiskStorage(config: DiskConfig(name: "cache", maxSize: 20000, directory: sandbox.root), fileManager: fileManager)
+        let blob = Data(repeating: 1, count: 5000)
+        for minutes in 1 ... 6 {
+            try storage.setObject(blob, forKey: "\(minutes)", expiry: .seconds(Double(minutes) * 60))
+        }
+        fileManager.beforeRemoving = { path in
+            if path.hasSuffix(MD5.hash("1")) {
+                throw RemovalFailed()
+            }
+        }
+
+        #expect(throws: RemovalFailed.self) {
+            try storage.removeExpiredObjects()
+        }
+
+        #expect(try storage.existsObject(forKey: "1"))
+        #expect(try storage.existsObject(forKey: "2") == false)
+    }
+
+    @Test("An expired file that can't be removed still counts toward maxSize")
+    func stuckExpiredFileCountsTowardMaxSize() throws {
+        let sandbox = try Sandbox()
+        let fileManager = HookedFileManager()
+        let storage = try DiskStorage(config: DiskConfig(name: "cache", maxSize: 40000, directory: sandbox.root), fileManager: fileManager)
+        // Only over maxSize if the stuck file is counted
+        try storage.setObject(Data(repeating: 1, count: 35000), forKey: "stuck", expiry: .seconds(-10))
+        try storage.setObject(Data(repeating: 1, count: 5000), forKey: "a", expiry: .seconds(60))
+        try storage.setObject(Data(repeating: 1, count: 5000), forKey: "b", expiry: .seconds(120))
+        fileManager.beforeRemoving = { path in
+            if path.hasSuffix(MD5.hash("stuck")) {
+                throw RemovalFailed()
+            }
+        }
+
+        #expect(throws: RemovalFailed.self) {
+            try storage.removeExpiredObjects()
+        }
+
+        #expect(try sandbox.files() == [MD5.hash("stuck")])
     }
 }
 

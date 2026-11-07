@@ -35,7 +35,8 @@ public protocol StorageAware: Sendable {
 
     /**
      Check if a non-expired object exists for the given key.
-     Does not deserialize the object.
+     Does not read the object, so a read can still fail after this returns `true`, for example
+     for a file with `.complete` protection while the device is locked.
      - Parameter key: Unique key to identify the object.
      */
     func existsObject(forKey key: String) throws -> Bool
@@ -46,7 +47,8 @@ public protocol StorageAware: Sendable {
     func removeAll() throws
 
     /**
-     Clears all expired objects.
+     Clears all expired objects, and enforces `DiskConfig.maxSize`.
+     A file that can't be removed doesn't stop the others. The first failure is thrown at the end.
      */
     func removeExpiredObjects() throws
 

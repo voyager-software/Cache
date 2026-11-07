@@ -128,8 +128,9 @@ extension DiskStorage: StorageAware {
                 .totalFileAllocatedSizeKey,
             ]
             var resourceObjects = [ResourceObject]()
-            var filesToDelete = [URL]()
+            var filesToDelete = [ResourceObject]()
             var totalSize: UInt = 0
+            var firstError: Swift.Error?
             let fileEnumerator = self.fileManager.enumerator(
                 at: storageURL,
                 includingPropertiesForKeys: resourceKeys,
@@ -142,13 +143,25 @@ extension DiskStorage: StorageAware {
             }
 
             for url in urlArray {
-                let resourceValues = try url.resourceValues(forKeys: Set(resourceKeys))
+                let resourceValues: URLResourceValues
+                do {
+                    resourceValues = try url.resourceValues(forKeys: Set(resourceKeys))
+                }
+                catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
+                    // A file that vanished during the scan doesn't need cleaning up
+                    continue
+                }
+                catch {
+                    firstError = firstError ?? error
+                    continue
+                }
+
                 guard resourceValues.isDirectory != true else {
                     continue
                 }
 
                 if let expiryDate = resourceValues.contentModificationDate, expiryDate.inThePast {
-                    filesToDelete.append(url)
+                    filesToDelete.append((url: url, resourceValues: resourceValues))
                     continue
                 }
 
@@ -159,12 +172,19 @@ extension DiskStorage: StorageAware {
             }
 
             // Remove expired objects
-            for url in filesToDelete {
-                try self.fileManager.removeItem(at: url)
+            for file in filesToDelete {
+                // A file that couldn't be removed still takes up space, so it counts toward the max size
+                if !removeFile(at: file.url, firstError: &firstError), let fileSize = file.resourceValues.totalFileAllocatedSize {
+                    totalSize += UInt(fileSize)
+                }
             }
 
             // Remove objects if storage size exceeds max size
-            try removeResourceObjects(resourceObjects, totalSize: totalSize)
+            removeResourceObjects(resourceObjects, totalSize: totalSize, firstError: &firstError)
+
+            if let firstError {
+                throw firstError
+            }
         }
     }
 }
@@ -233,6 +253,21 @@ private extension DiskStorage {
         catch CocoaError.fileNoSuchFile {}
     }
 
+    /// Removes the file, keeping the first failure instead of stopping at it.
+    /// Must be called while holding the lock.
+    /// - Returns: Whether the file is gone
+    @discardableResult
+    func removeFile(at url: URL, firstError: inout Swift.Error?) -> Bool {
+        do {
+            try removeItemIfPresent(atPath: url.path)
+            return true
+        }
+        catch {
+            firstError = firstError ?? error
+            return false
+        }
+    }
+
     /// Wraps encoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
     func encode(_ object: some Encodable, forKey key: String) throws -> Data {
         do {
@@ -264,8 +299,9 @@ private extension DiskStorage {
      Must be called while holding the lock.
      - Parameter objects: Resource objects to remove
      - Parameter totalSize: Total size
+     - Parameter firstError: Keeps the first failure, so that the other objects still get removed
      */
-    func removeResourceObjects(_ objects: [ResourceObject], totalSize: UInt) throws {
+    func removeResourceObjects(_ objects: [ResourceObject], totalSize: UInt, firstError: inout Swift.Error?) {
         guard self.config.maxSize > 0, totalSize > self.config.maxSize else {
             return
         }
@@ -285,7 +321,9 @@ private extension DiskStorage {
         }
 
         for file in sortedFiles {
-            try self.fileManager.removeItem(at: file.url)
+            guard removeFile(at: file.url, firstError: &firstError) else {
+                continue
+            }
             if let fileSize = file.resourceValues.totalFileAllocatedSize {
                 remainingSize -= UInt(fileSize)
             }

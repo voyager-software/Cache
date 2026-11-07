@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Bug fixes
+- `removeExpiredObjects()` no longer stops at the first file it can't read or remove. It carries on, then throws the first failure at the end. A file that vanished during the purge isn't a failure.
+- Hybrid storage writes to disk before memory, so a failed write no longer leaves memory holding a value that wasn't saved.
+
+Other
+- Documented how `protectionType` treats existing files, and how `.complete` behaves while the device is locked.
+- Added CI.
+
 ## 4.10.0
 
 Bug fixes
