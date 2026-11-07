@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.0.1
+
+Bug fixes
+- With both disk and memory, an object could stay readable after its file expired, because the copy in memory used `MemoryConfig.expiry`. An object now has one expiry, and `entry(ofType:forKey:)` reports the same one from memory and from disk.
+- A `DiskConfig` name that isn't a single folder is refused, because purging or `removeAll()` could delete files outside the cache. With an empty name, they emptied `directory` itself. `Storage` now throws `CocoaError(.fileWriteInvalidFileName)`.
+- An object in memory no longer waits for disk access or encoding of another object.
+- Encoding and decoding no longer hold any lock, so a slow `Codable` type doesn't hold up other objects, and its code can use the storage it's being saved in.
+
+Behaviour changes
+- `MemoryConfig.expiry` is now only used by memory-only storage. With a disk, objects use the expiry from `DiskConfig`.
+- A `DiskConfig` name with a `/`, like `"Images/Thumbnails"`, used to create nested folders and now throws. Pass the parent folder as `directory` instead. Use the same full path to keep what's already cached there.
+
+Other
+- Documented that objects should be read with the type they were written as. On disk, `Data` returns a file's bytes without checking what was written, so an object written as `Data?` comes back as JSON.
+- Added tests that compare all kinds of storage, cover the config's default expiry and use storage from many threads. CI also runs the tests with Thread Sanitizer.
+
 ## 5.0.0
 
 Removed

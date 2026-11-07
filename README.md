@@ -4,7 +4,7 @@
 
 Stores `Codable & Sendable` values on disk, in memory, or both, with expiry. Thread safe.
 
-Requires iOS 16, macOS 13, tvOS 16, watchOS 9 or visionOS 1.
+Requires Swift 6.2, and iOS 16, macOS 13, tvOS 16, watchOS 9 or visionOS 1.
 
 ## Installation
 
@@ -40,6 +40,8 @@ try storage.removeAll()
 let bytes = try storage.diskSize()
 ```
 
+Read an object with the type it was written as. With any other type, the result depends on the kind of storage. Files don't record their type, so a file may decode as another type if its JSON fits, and asking for `Data` returns the file's bytes as they are. That includes an object written as `Data?`, whose file holds JSON rather than the original bytes.
+
 ## Configuration
 
 ```swift
@@ -56,11 +58,15 @@ MemoryConfig(
 )
 ```
 
+The name must be a single folder name. An empty name, `.`, `..` and anything with a `/` make `Storage` throw `CocoaError(.fileWriteInvalidFileName)`.
+
 The folder must be used only by the storage: `removeExpiredObjects()` deletes every file in it that isn't one of its objects, whatever its age and hidden files included.
 
 ## Expiry
 
 `.never`, `.seconds(TimeInterval)` or `.date(Date)`. It's set by the config, or per object in `setObject`.
+
+With both disk and memory, an object has one expiry, and the config's default comes from `DiskConfig`. `MemoryConfig.expiry` is only used by memory-only storage.
 
 An expired object counts as missing, but its file stays on disk until `removeExpiredObjects()`.
 

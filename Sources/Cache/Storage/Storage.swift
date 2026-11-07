@@ -9,7 +9,8 @@ public final class Storage: Sendable {
     /// - Parameters:
     ///   - diskConfig: Configuration for disk storage
     ///   - memoryConfig: Optional. Pass config to add an in-memory layer
-    /// - Throws: Throw StorageError if any.
+    /// - Throws: `CocoaError(.fileWriteInvalidFileName)` if the config's name isn't a single folder name,
+    ///   or the file system's error if the folder can't be created.
     public init(diskConfig: DiskConfig, memoryConfig: MemoryConfig? = nil) throws {
         let disk = try DiskStorage(config: diskConfig)
 
@@ -37,7 +38,9 @@ public final class Storage: Sendable {
 
 extension Storage: StorageAware {
     /**
-     Tries to retrieve the object from the storage.
+     Tries to retrieve the object from the storage. Use the type the object was written as: with
+     any other type, the kinds of storage can give different results, including the file's raw
+     bytes when asking for `Data`.
      - Parameter key: Unique key to identify the object in the cache
      - Returns: Cached object
      - Throws: `StorageError.notFound` if there's no object for the key, or it has expired
