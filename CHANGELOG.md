@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.10.1
 
 Bug fixes
 - `removeExpiredObjects()` no longer stops at the first file it can't read or remove. It carries on, then throws the first failure at the end. A file that vanished during the purge isn't a failure.
