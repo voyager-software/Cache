@@ -24,12 +24,16 @@ final class DiskStorage: Sendable {
         }
 
         // path
-        let path = url.appendingPathComponent(config.name, isDirectory: true).path
-        // File system calls stop reading a path at a NUL, so they would act on a different folder.
-        // The URL keeps a NUL as %00, which its path may or may not decode, so both are checked.
-        guard url.isFileURL, !path.unicodeScalars.contains("\u{0}"),
+        // A NUL in a URL can make it come out as the root folder, depending on the OS version: on
+        // macOS 26, appending "a\u{0}b" to a folder's URL gives file:///. So the root folder is refused,
+        // and the name is joined as a string rather than with URL methods, then checked.
+        let directoryPath = url.standardizedFileURL.path
+        let path = (directoryPath as NSString).appendingPathComponent(config.name)
+        guard url.isFileURL, !directoryPath.isEmpty, directoryPath != "/",
+              !path.unicodeScalars.contains("\u{0}"),
               url.absoluteString.range(of: "%00", options: .caseInsensitive) == nil,
-              URL(fileURLWithPath: path, isDirectory: true).lastPathComponent == config.name
+              (path as NSString).deletingLastPathComponent == directoryPath,
+              (path as NSString).lastPathComponent == config.name
         else {
             throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSFilePathErrorKey: path])
         }

@@ -269,6 +269,16 @@ struct FolderNameTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: sandbox.root.path) == ["bystander.txt"])
     }
 
+    /// What a directory with a NUL in it can come out as, depending on the OS version.
+    @Test("The root folder is refused as the directory")
+    func refusedRoot() throws {
+        let error = try #require(throws: CocoaError.self) {
+            try Storage(diskConfig: DiskConfig(name: "cache", directory: URL(fileURLWithPath: "/", isDirectory: true)))
+        }
+
+        #expect(error.code == .fileWriteInvalidFileName)
+    }
+
     @Test("Other names work", arguments: ["Floppy", "with space", "a.b", ".hidden", "..dots", "…", "日本語"])
     func accepted(name: String) throws {
         let sandbox = try Sandbox()

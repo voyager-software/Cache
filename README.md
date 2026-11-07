@@ -58,7 +58,7 @@ MemoryConfig(
 )
 ```
 
-The name must be a single folder name. An empty name, `.`, `..`, and anything with a `/` or a control character such as NUL make `Storage` throw `CocoaError(.fileWriteInvalidFileName)`. So does a `directory` with a NUL in it.
+The name must be a single folder name. An empty name, `.`, `..`, and anything with a `/` or a control character such as NUL make `Storage` throw `CocoaError(.fileWriteInvalidFileName)`. So does a `directory` with a NUL in it, or the root folder, which is what a URL with a NUL can turn into.
 
 `removeExpiredObjects()` and `removeAll()` only delete files named like the storage's objects, directly in its folder. Anything else in the folder, including subfolders, is left alone.
 

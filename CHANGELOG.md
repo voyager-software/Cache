@@ -5,7 +5,7 @@
 Bug fixes
 - With both disk and memory, an object could stay readable after its file expired, because the copy in memory used `MemoryConfig.expiry`. An object now has one expiry, and `entry(ofType:forKey:)` reports the same one from memory and from disk.
 - A `DiskConfig` name that isn't a single folder is refused, because purging or `removeAll()` could delete files outside the cache. With an empty name, they emptied `directory` itself. `Storage` now throws `CocoaError(.fileWriteInvalidFileName)`.
-- A `DiskConfig` name with a control character such as NUL is refused too, and so is a `directory` with a NUL in it. File system calls stop reading a path at a NUL, so purging could act on files far outside the cache.
+- A `DiskConfig` name with a control character such as NUL is refused too, and so is a `directory` with a NUL in it, or the root folder. File system calls stop reading a path at a NUL, and on macOS 26 a folder's URL with a NUL added comes out as the root folder, so purging could act on files far outside the cache.
 - `removeExpiredObjects()` and `removeAll()` only delete files named like the storage's objects, directly in its folder. Purging used to delete every other file in the folder and in its subfolders, and `removeAll()` deleted the whole folder, so a wrong path could cost files that had nothing to do with the cache.
 - An object in memory no longer waits for disk access or encoding of another object.
 - An object's relative expiry, like `.seconds(10)`, starts once it's being saved. Waiting for another write or a disk read used to use it up, so a short-lived object could be saved already expired.

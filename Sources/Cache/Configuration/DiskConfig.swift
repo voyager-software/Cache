@@ -9,7 +9,8 @@ public struct DiskConfig: Sendable {
     /// Expiry date that will be applied by default for every added object
     /// if it's not overridden in the `setObject(_:forKey:expiry:)` method
     public let expiry: Expiry
-    /// A folder to store the disk cache contents. Defaults to the Caches directory if nil
+    /// A folder to store the disk cache contents. Defaults to the Caches directory if nil.
+    /// `Storage` refuses the root folder, and a URL with a NUL in it.
     public let directory: URL?
     #if os(iOS) || os(tvOS)
     /// Data protection is used to store files in an encrypted format on disk and to decrypt them on demand.
