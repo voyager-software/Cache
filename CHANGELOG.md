@@ -17,6 +17,7 @@ Added
 
 Upgrading
 - Existing caches start empty. Files from 4.x are never read, and `removeExpiredObjects()` removes them. They stay on disk until then, or until `removeAll()`.
+- `removeExpiredObjects()` deletes every file in the folder that isn't one of the storage's objects, hidden files included, so keep nothing else in it.
 - Replace `entry(...)` followed by an `isExpired` check with `object(...)`, or just remove the check.
 - Remove `maxSize:` from `DiskConfig(...)`.
 

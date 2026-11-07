@@ -54,6 +54,8 @@ MemoryConfig(
 )
 ```
 
+The folder must be used only by the storage: `removeExpiredObjects()` deletes every file in it that isn't one of its objects, whatever its age and hidden files included.
+
 ## Expiry
 
 `.never`, `.seconds(TimeInterval)` or `.date(Date)`. It's set by the config, or per object in `setObject`.

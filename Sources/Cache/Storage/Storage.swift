@@ -92,7 +92,9 @@ extension Storage: StorageAware {
     }
 
     /**
-     Clears all expired objects, along with any files left behind by an older version of this package.
+     Clears all expired objects, and deletes every other file in the storage's folder that isn't one
+     of its objects, whatever its age and hidden files included. That covers files left behind by an
+     older version of this package, so the folder must be used only by this storage.
      A file that can't be removed doesn't stop the others. The first failure is thrown at the end.
      */
     public func removeExpiredObjects() throws {
