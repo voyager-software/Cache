@@ -51,8 +51,9 @@ extension HybridStorage: StorageAware {
 
     func setObject(_ object: some Codable & Sendable, forKey key: String, expiry: Expiry? = nil) throws {
         try self.lock.withLockUnchecked {
-            self.memoryStorage.setObject(object, forKey: key, expiry: expiry)
+            // Disk first, because it's the one that can fail. Memory then never holds what wasn't saved.
             try self.diskStorage.setObject(object, forKey: key, expiry: expiry)
+            self.memoryStorage.setObject(object, forKey: key, expiry: expiry)
         }
     }
 

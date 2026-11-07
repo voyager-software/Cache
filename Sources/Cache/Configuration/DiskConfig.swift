@@ -14,7 +14,8 @@ public struct DiskConfig: Sendable {
     public let directory: URL?
     #if os(iOS) || os(tvOS)
     /// Data protection is used to store files in an encrypted format on disk and to decrypt them on demand.
-    /// Support only on iOS and tvOS.
+    /// Support only on iOS and tvOS. Applies to files written from now on: a file that's already
+    /// there keeps its protection until it's overwritten.
     public let protectionType: FileProtectionType?
 
     public init(name: String, expiry: Expiry = .never,
