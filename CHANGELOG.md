@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 5.0.0
 
 Removed
 - `ImageWrapper`, the `Image` typealias, `JSONArrayWrapper`, `JSONDictionaryWrapper`, `JSONArray` and `JSONDictionary`. The package no longer depends on UIKit or AppKit.
