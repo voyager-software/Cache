@@ -70,4 +70,10 @@ extension HybridStorage: StorageAware {
             try self.diskStorage.removeExpiredObjects()
         }
     }
+
+    func diskSize() throws -> UInt64 {
+        try self.lock.withLockUnchecked {
+            try self.diskStorage.diskSize()
+        }
+    }
 }

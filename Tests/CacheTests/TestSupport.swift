@@ -29,8 +29,8 @@ final class Sandbox {
         self.root.appendingPathComponent(name, isDirectory: true)
     }
 
-    func storage(_ mode: Mode, name: String = "cache", maxSize: UInt = 0, countLimit: UInt = 0) throws -> Storage {
-        let disk = DiskConfig(name: name, maxSize: maxSize, directory: self.root)
+    func storage(_ mode: Mode, name: String = "cache", countLimit: UInt = 0) throws -> Storage {
+        let disk = DiskConfig(name: name, directory: self.root)
         let memory = MemoryConfig(countLimit: countLimit)
         return switch mode {
         case .disk:
@@ -45,6 +45,11 @@ final class Sandbox {
     func files(named name: String = "cache") throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: self.folder(named: name).path)
     }
+}
+
+/// What a key's file is called on disk.
+func fileName(for key: String) -> String {
+    "\(MD5.hash(key)).\(DiskStorage.fileExtension)"
 }
 
 struct Person: Codable, Sendable, Equatable {

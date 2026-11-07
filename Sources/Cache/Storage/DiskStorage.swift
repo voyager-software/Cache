@@ -23,6 +23,12 @@ final class DiskStorage: Sendable {
         try createDirectory()
     }
 
+    // MARK: Internal
+
+    /// Files in the current format end in this. Anything else was left by an older version, whose
+    /// format can't be read any more, so it's never looked up and `removeExpiredObjects()` removes it.
+    static let fileExtension = "cache"
+
     // MARK: Private
 
     private enum Error: Swift.Error {
@@ -43,43 +49,38 @@ extension DiskStorage: StorageAware {
     func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
         try self.lock.withLockUnchecked {
             let filePath = makeFilePath(for: key)
-            let data: Data
             do {
-                data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+                // The expiry comes first, so that an expired object isn't read or decoded
+                let attributes = try fileManager.attributesOfItem(atPath: filePath)
+                guard let date = attributes[.modificationDate] as? Date else {
+                    throw StorageError.malformedFileAttributes(key: key)
+                }
+                guard !date.inThePast else {
+                    throw StorageError.notFound(key: key)
+                }
+
+                let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+                let object: T = if T.self == Data.self, let data = data as? T {
+                    data
+                }
+                else {
+                    try decode(data, forKey: key)
+                }
+
+                return Entry(object: object, expiry: Expiry.date(date))
             }
-            catch CocoaError.fileReadNoSuchFile {
+            catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
                 throw StorageError.notFound(key: key)
             }
-            let attributes = try fileManager.attributesOfItem(atPath: filePath)
-
-            guard let date = attributes[.modificationDate] as? Date else {
-                throw StorageError.malformedFileAttributes(key: key)
-            }
-
-            let meta: [String: any Sendable] = [
-                "filePath": filePath,
-            ]
-
-            let object: T = if T.self == Data.self, let data = data as? T {
-                data
-            }
-            else {
-                try decode(data, forKey: key)
-            }
-
-            return Entry(
-                object: object,
-                expiry: Expiry.date(date),
-                meta: meta
-            )
         }
     }
 
-    func setObject(_ object: some Codable & Sendable, forKey key: String, expiry: Expiry? = nil) throws {
+    func setObject<T: Codable & Sendable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
         try self.lock.withLockUnchecked {
             let expiry = expiry ?? self.config.expiry
 
-            let data: Data = if let rawData = object as? Data {
+            // Exactly `Data`, like when reading. `as? Data` alone would also unwrap a `Data?`.
+            let data: Data = if T.self == Data.self, let rawData = object as? Data {
                 rawData
             }
             else {
@@ -121,84 +122,96 @@ extension DiskStorage: StorageAware {
 
     func removeExpiredObjects() throws {
         try self.lock.withLockUnchecked {
-            let storageURL = URL(fileURLWithPath: path)
-            let resourceKeys: [URLResourceKey] = [
-                .isDirectoryKey,
-                .contentModificationDateKey,
-                .totalFileAllocatedSizeKey,
-            ]
-            var resourceObjects = [ResourceObject]()
-            var filesToDelete = [ResourceObject]()
-            var totalSize: UInt = 0
             var firstError: Swift.Error?
-            let fileEnumerator = self.fileManager.enumerator(
-                at: storageURL,
-                includingPropertiesForKeys: resourceKeys,
-                options: .skipsHiddenFiles,
-                errorHandler: nil
-            )
 
-            guard let urlArray = fileEnumerator?.allObjects as? [URL] else {
-                throw Error.fileEnumeratorFailed
-            }
-
-            for url in urlArray {
-                let resourceValues: URLResourceValues
-                do {
-                    resourceValues = try url.resourceValues(forKeys: Set(resourceKeys))
-                }
-                catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
-                    // A file that vanished during the scan doesn't need cleaning up
-                    continue
-                }
-                catch {
-                    firstError = firstError ?? error
-                    continue
-                }
-
-                guard resourceValues.isDirectory != true else {
-                    continue
-                }
-
-                if let expiryDate = resourceValues.contentModificationDate, expiryDate.inThePast {
-                    filesToDelete.append((url: url, resourceValues: resourceValues))
-                    continue
-                }
-
-                if let fileSize = resourceValues.totalFileAllocatedSize {
-                    totalSize += UInt(fileSize)
-                    resourceObjects.append((url: url, resourceValues: resourceValues))
+            for file in try listFiles(keys: [.contentModificationDateKey], firstError: &firstError) {
+                let isExpired = file.resourceValues.contentModificationDate?.inThePast ?? false
+                if isExpired || file.url.pathExtension != Self.fileExtension {
+                    removeFile(at: file.url, firstError: &firstError)
                 }
             }
-
-            // Remove expired objects
-            for file in filesToDelete {
-                // A file that couldn't be removed still takes up space, so it counts toward the max size
-                if !removeFile(at: file.url, firstError: &firstError), let fileSize = file.resourceValues.totalFileAllocatedSize {
-                    totalSize += UInt(fileSize)
-                }
-            }
-
-            // Remove objects if storage size exceeds max size
-            removeResourceObjects(resourceObjects, totalSize: totalSize, firstError: &firstError)
 
             if let firstError {
                 throw firstError
             }
         }
     }
+
+    func diskSize() throws -> UInt64 {
+        try self.lock.withLockUnchecked {
+            var firstError: Swift.Error?
+            var size: UInt64 = 0
+
+            for file in try listFiles(keys: [.totalFileAllocatedSizeKey], firstError: &firstError) {
+                size += UInt64(file.resourceValues.totalFileAllocatedSize ?? 0)
+            }
+
+            if let firstError {
+                throw firstError
+            }
+            return size
+        }
+    }
 }
 
 private extension DiskStorage {
-    typealias ResourceObject = (url: Foundation.URL, resourceValues: URLResourceValues)
+    /**
+     Lists the files in the cache directory, hidden ones included, keeping the first failure instead
+     of stopping at it. A file that vanished during the scan is skipped. Must be called while holding the lock.
+     - Parameter keys: The resource values that the caller needs
+     - Parameter firstError: Keeps the first failure
+     */
+    func listFiles(keys: Set<URLResourceKey>,
+                   firstError: inout Swift.Error?) throws -> [(url: URL, resourceValues: URLResourceValues)]
+    {
+        let resourceKeys = keys.union([.isDirectoryKey])
+        var enumerationError: Swift.Error?
+        let fileEnumerator = self.fileManager.enumerator(
+            at: URL(fileURLWithPath: self.path),
+            includingPropertiesForKeys: Array(resourceKeys),
+            options: [],
+            errorHandler: { _, error in
+                let code = (error as? CocoaError)?.code
+                if code != .fileReadNoSuchFile, code != .fileNoSuchFile {
+                    enumerationError = enumerationError ?? error
+                }
+                return true
+            }
+        )
+
+        guard let urlArray = fileEnumerator?.allObjects as? [URL] else {
+            throw Error.fileEnumeratorFailed
+        }
+        firstError = firstError ?? enumerationError
+
+        var files = [(url: URL, resourceValues: URLResourceValues)]()
+        for url in urlArray {
+            let resourceValues: URLResourceValues
+            do {
+                resourceValues = try url.resourceValues(forKeys: resourceKeys)
+            }
+            catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
+                continue
+            }
+            catch {
+                firstError = firstError ?? error
+                continue
+            }
+
+            if resourceValues.isDirectory != true {
+                files.append((url: url, resourceValues: resourceValues))
+            }
+        }
+        return files
+    }
 
     /**
      Builds file name from the key.
      - Parameter key: Unique key to identify the object in the cache
-     - Returns: A md5 string
+     - Returns: A md5 string with the file extension
      */
     func makeFileName(for key: String) -> String {
-        MD5.hash(key)
+        "\(MD5.hash(key)).\(Self.fileExtension)"
     }
 
     /**
@@ -291,45 +304,6 @@ private extension DiskStorage {
         }
         catch {
             throw StorageError.decodingFailed(context: "DiskStorage: failed to decode object for key: \(key)", underlyingError: error)
-        }
-    }
-
-    /**
-     Removes objects if storage size exceeds max size.
-     Must be called while holding the lock.
-     - Parameter objects: Resource objects to remove
-     - Parameter totalSize: Total size
-     - Parameter firstError: Keeps the first failure, so that the other objects still get removed
-     */
-    func removeResourceObjects(_ objects: [ResourceObject], totalSize: UInt, firstError: inout Swift.Error?) {
-        guard self.config.maxSize > 0, totalSize > self.config.maxSize else {
-            return
-        }
-
-        var remainingSize = totalSize
-        let targetSize = self.config.maxSize / 2
-
-        let sortedFiles = objects.sorted {
-            if let time1 = $0.resourceValues.contentModificationDate?.timeIntervalSinceReferenceDate,
-               let time2 = $1.resourceValues.contentModificationDate?.timeIntervalSinceReferenceDate
-            {
-                time1 < time2
-            }
-            else {
-                false
-            }
-        }
-
-        for file in sortedFiles {
-            guard removeFile(at: file.url, firstError: &firstError) else {
-                continue
-            }
-            if let fileSize = file.resourceValues.totalFileAllocatedSize {
-                remainingSize -= UInt(fileSize)
-            }
-            if remainingSize < targetSize {
-                break
-            }
         }
     }
 }

@@ -4,10 +4,9 @@ import Foundation
 public struct Entry<T: Codable & Sendable>: Sendable {
     // MARK: Lifecycle
 
-    init(object: T, expiry: Expiry, meta: [String: any Sendable] = [:]) {
+    init(object: T, expiry: Expiry) {
         self.object = object
         self.expiry = expiry
-        self.meta = meta
     }
 
     // MARK: Public
@@ -16,6 +15,4 @@ public struct Entry<T: Codable & Sendable>: Sendable {
     public let object: T
     /// Expiry date
     public let expiry: Expiry
-    /// Associated meta data, if any. Currently always empty when read through `Storage`.
-    public let meta: [String: any Sendable]
 }

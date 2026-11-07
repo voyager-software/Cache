@@ -23,6 +23,32 @@ struct StorageTests {
         #expect(try storage.object(ofType: Data.self, forKey: "data") == data)
     }
 
+    @Test("Data is stored as it is, with nothing around it")
+    func dataIsStoredRaw() throws {
+        let sandbox = try Sandbox()
+        let data = Data(repeating: 7, count: 1000)
+
+        try sandbox.storage(.disk).setObject(data, forKey: "key")
+
+        let file = sandbox.folder().appendingPathComponent(fileName(for: "key"))
+        #expect(try Data(contentsOf: file) == data)
+    }
+
+    @Test("An optional Data can be read back, with or without a value", arguments: Sandbox.Mode.allCases)
+    func optionalData(mode: Sandbox.Mode) throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(mode)
+        // Not valid JSON or UTF-8, so it can't get through by accident
+        let value: Data? = Data([0, 255, 254, 1])
+        let empty: Data? = nil
+
+        try storage.setObject(value, forKey: "value")
+        try storage.setObject(empty, forKey: "empty")
+
+        #expect(try storage.object(ofType: Data?.self, forKey: "value") == value)
+        #expect(try storage.object(ofType: Data?.self, forKey: "empty") == nil)
+    }
+
     @Test("Hybrid storage finds what an earlier instance saved")
     func hybridReadsFromDisk() throws {
         let sandbox = try Sandbox()
@@ -191,20 +217,38 @@ struct StorageTests {
 
     // MARK: Expiry
 
-    @Test("An expired object counts as missing, but its entry can still be read", arguments: Sandbox.Mode.allCases)
+    @Test("An expired object counts as missing, however it's asked for", arguments: Sandbox.Mode.allCases)
     func expiredObject(mode: Sandbox.Mode) throws {
         let sandbox = try Sandbox()
         let storage = try sandbox.storage(mode)
         try storage.setObject("old", forKey: "key", expiry: .seconds(-10))
 
-        #expect(throws: StorageError.self) {
-            try storage.object(ofType: String.self, forKey: "key")
-        }
         #expect(try storage.existsObject(forKey: "key") == false)
+        for read in [
+            { try storage.object(ofType: String.self, forKey: "key") },
+            { try storage.entry(ofType: String.self, forKey: "key").object },
+        ] {
+            let error = try #require(throws: StorageError.self) {
+                _ = try read()
+            }
+            guard case .notFound = error else {
+                Issue.record("Expected notFound, got \(error)")
+                return
+            }
+        }
+    }
+
+    @Test("An entry has the object and its expiry", arguments: Sandbox.Mode.allCases)
+    func entryOfLiveObject(mode: Sandbox.Mode) throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(mode)
+        let expiry = Date().addingTimeInterval(3600)
+        try storage.setObject("new", forKey: "key", expiry: .date(expiry))
 
         let entry = try storage.entry(ofType: String.self, forKey: "key")
-        #expect(entry.object == "old")
-        #expect(entry.expiry.isExpired)
+
+        #expect(entry.object == "new")
+        #expect(abs(entry.expiry.date.timeIntervalSince(expiry)) < 1)
     }
 
     @Test("removeExpiredObjects only removes expired objects", arguments: Sandbox.Mode.allCases)
@@ -216,8 +260,9 @@ struct StorageTests {
 
         try storage.removeExpiredObjects()
 
-        #expect(throws: StorageError.self) {
-            try storage.entry(ofType: String.self, forKey: "old")
+        // Reads already treat an expired object as missing, so this has to look at the files
+        if mode != .memory {
+            #expect(try sandbox.files() == [fileName(for: "new")])
         }
         #expect(try storage.object(ofType: String.self, forKey: "new") == "new")
     }
@@ -234,21 +279,104 @@ struct StorageTests {
         #expect(try sandbox.storage(mode).object(ofType: String.self, forKey: "key") == "kept")
     }
 
-    @Test("Going over maxSize evicts the soonest to expire first")
-    func eviction() throws {
+    // MARK: Files from older versions
+
+    /// 4.x named files with just the hash, and wrapped each object in `{"object": ...}`.
+    private func writeOldFormatFile(in sandbox: Sandbox, key: String) throws {
+        let file = sandbox.folder().appendingPathComponent(MD5.hash(key))
+        try Data(#"{"object":"old"}"#.utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date.distantFuture], ofItemAtPath: file.path)
+    }
+
+    @Test("A file from an older version is never read", arguments: [Sandbox.Mode.disk, .hybrid])
+    func oldFormatIsNotRead(mode: Sandbox.Mode) throws {
         let sandbox = try Sandbox()
-        let storage = try sandbox.storage(.disk, maxSize: 40000)
-        let blob = Data(repeating: 1, count: 5000)
-        try storage.setObject(blob, forKey: "never", expiry: .never)
-        for minutes in 1 ... 4 {
-            try storage.setObject(blob, forKey: "\(minutes)", expiry: .seconds(Double(minutes) * 60))
+        let storage = try sandbox.storage(mode)
+        try writeOldFormatFile(in: sandbox, key: "key")
+
+        #expect(try storage.existsObject(forKey: "key") == false)
+        let error = try #require(throws: StorageError.self) {
+            try storage.object(ofType: String.self, forKey: "key")
         }
-        try storage.setObject(blob, forKey: "latest", expiry: .seconds(6000))
+        guard case .notFound = error else {
+            Issue.record("Expected notFound, got \(error)")
+            return
+        }
+    }
+
+    @Test("Purging removes files from older versions, even if they haven't expired")
+    func purgeRemovesOldFormat() throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(.disk)
+        try writeOldFormatFile(in: sandbox, key: "old")
+        try storage.setObject("new", forKey: "new")
 
         try storage.removeExpiredObjects()
 
-        #expect(try storage.existsObject(forKey: "1") == false)
-        #expect(try storage.existsObject(forKey: "never"))
+        #expect(try sandbox.files() == [fileName(for: "new")])
+    }
+
+    // MARK: Disk size
+
+    @Test("diskSize follows what's on disk", arguments: [Sandbox.Mode.disk, .hybrid])
+    func diskSize(mode: Sandbox.Mode) throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(mode)
+        #expect(try storage.diskSize() == 0)
+
+        try storage.setObject(Data(repeating: 1, count: 5000), forKey: "key")
+        #expect(try storage.diskSize() >= 5000)
+
+        try storage.removeAll()
+        #expect(try storage.diskSize() == 0)
+    }
+
+    @Test("Hidden files count toward diskSize, and purging removes them")
+    func hiddenFiles() throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(.disk)
+        try Data(repeating: 1, count: 5000).write(to: sandbox.folder().appendingPathComponent(".hidden"))
+
+        #expect(try storage.diskSize() >= 5000)
+
+        try storage.removeExpiredObjects()
+
+        #expect(try sandbox.files().isEmpty)
+    }
+
+    @Test("A folder that can't be read makes diskSize and purging throw, after doing what they can")
+    func unreadableFolder() throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(.disk)
+        try storage.setObject(1, forKey: "old", expiry: .seconds(-10))
+        let locked = sandbox.folder().appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer {
+            // Otherwise the sandbox can't clean it up
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        }
+
+        #expect(throws: (any Error).self) {
+            try storage.diskSize()
+        }
+        #expect(throws: (any Error).self) {
+            try storage.removeExpiredObjects()
+        }
+
+        #expect(try sandbox.files() == ["locked"])
+    }
+
+    @Test("diskSize is 0 without a disk, or without the folder")
+    func diskSizeWithoutDisk() throws {
+        let sandbox = try Sandbox()
+        let memory = try sandbox.storage(.memory)
+        try memory.setObject(1, forKey: "key")
+        #expect(try memory.diskSize() == 0)
+
+        let disk = try sandbox.storage(.disk)
+        try FileManager.default.removeItem(at: sandbox.folder())
+        #expect(try disk.diskSize() == 0)
     }
 
     // MARK: Losing the folder
@@ -372,7 +500,7 @@ struct PurgeFailureTests {
             try storage.setObject(1, forKey: key, expiry: .seconds(-10))
         }
         fileManager.beforeRemoving = { path in
-            if path.hasSuffix(MD5.hash("b")), FileManager.default.fileExists(atPath: path) {
+            if path.hasSuffix(fileName(for: "b")), FileManager.default.fileExists(atPath: path) {
                 try FileManager.default.removeItem(atPath: path)
             }
         }
@@ -380,51 +508,6 @@ struct PurgeFailureTests {
         try storage.removeExpiredObjects()
 
         #expect(try sandbox.files().isEmpty)
-    }
-
-    @Test("Going over maxSize still evicts the others when one can't be removed")
-    func evictionContinuesPastFailure() throws {
-        let sandbox = try Sandbox()
-        let fileManager = HookedFileManager()
-        let storage = try DiskStorage(config: DiskConfig(name: "cache", maxSize: 20000, directory: sandbox.root), fileManager: fileManager)
-        let blob = Data(repeating: 1, count: 5000)
-        for minutes in 1 ... 6 {
-            try storage.setObject(blob, forKey: "\(minutes)", expiry: .seconds(Double(minutes) * 60))
-        }
-        fileManager.beforeRemoving = { path in
-            if path.hasSuffix(MD5.hash("1")) {
-                throw RemovalFailed()
-            }
-        }
-
-        #expect(throws: RemovalFailed.self) {
-            try storage.removeExpiredObjects()
-        }
-
-        #expect(try storage.existsObject(forKey: "1"))
-        #expect(try storage.existsObject(forKey: "2") == false)
-    }
-
-    @Test("An expired file that can't be removed still counts toward maxSize")
-    func stuckExpiredFileCountsTowardMaxSize() throws {
-        let sandbox = try Sandbox()
-        let fileManager = HookedFileManager()
-        let storage = try DiskStorage(config: DiskConfig(name: "cache", maxSize: 40000, directory: sandbox.root), fileManager: fileManager)
-        // Only over maxSize if the stuck file is counted
-        try storage.setObject(Data(repeating: 1, count: 35000), forKey: "stuck", expiry: .seconds(-10))
-        try storage.setObject(Data(repeating: 1, count: 5000), forKey: "a", expiry: .seconds(60))
-        try storage.setObject(Data(repeating: 1, count: 5000), forKey: "b", expiry: .seconds(120))
-        fileManager.beforeRemoving = { path in
-            if path.hasSuffix(MD5.hash("stuck")) {
-                throw RemovalFailed()
-            }
-        }
-
-        #expect(throws: RemovalFailed.self) {
-            try storage.removeExpiredObjects()
-        }
-
-        #expect(try sandbox.files() == [MD5.hash("stuck")])
     }
 }
 

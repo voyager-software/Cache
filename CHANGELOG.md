@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+Removed
+- `ImageWrapper`, the `Image` typealias, `JSONArrayWrapper`, `JSONDictionaryWrapper`, `JSONArray` and `JSONDictionary`. The package no longer depends on UIKit or AppKit.
+- `DiskConfig.maxSize`, which was only enforced by `removeExpiredObjects()`.
+- `Entry.meta`, which was always empty.
+- The public `StorageAware` protocol. Use `Storage`.
+
+Behaviour changes
+- `entry(ofType:forKey:)` treats an expired object as missing and throws `StorageError.notFound`, like `object(ofType:forKey:)`. Disk reads check the expiry first, so an expired object isn't read or decoded.
+- Objects are stored without a wrapper, and `Data` is stored as it is instead of base64 in JSON. That takes about a quarter less disk space for `Data`.
+
+Added
+- `Storage.diskSize()`.
+
+Upgrading
+- Existing caches start empty. Files from 4.x are never read, and `removeExpiredObjects()` removes them. They stay on disk until then, or until `removeAll()`.
+- `removeExpiredObjects()` deletes every file in the folder that isn't one of the storage's objects, hidden files included, so keep nothing else in it.
+- Replace `entry(...)` followed by an `isExpired` check with `object(...)`, or just remove the check.
+- Remove `maxSize:` from `DiskConfig(...)`.
+
 ## 4.10.1
 
 Bug fixes
