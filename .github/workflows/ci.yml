@@ -21,6 +21,14 @@ jobs:
       - uses: actions/checkout@v7
       - run: swift test
 
+  test-thread-sanitizer:
+    name: Test with Thread Sanitizer
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: swift test --sanitize=thread
+
   # File protection is only compiled for iOS and tvOS, so its tests only run here.
   test-ios:
     name: Test on the iOS Simulator

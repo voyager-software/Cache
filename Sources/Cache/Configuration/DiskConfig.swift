@@ -2,6 +2,7 @@ import Foundation
 
 public struct DiskConfig: Sendable {
     /// The name of disk storage, this will be used as folder name within directory.
+    /// It must be a single folder name: `Storage` refuses an empty name, `.`, `..`, and anything with a `/`.
     /// The folder must be used only by this storage: `removeExpiredObjects()` deletes anything else in it.
     public let name: String
     /// Expiry date that will be applied by default for every added object

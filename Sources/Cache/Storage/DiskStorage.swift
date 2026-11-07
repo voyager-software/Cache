@@ -6,6 +6,11 @@ final class DiskStorage: Sendable {
     // MARK: Lifecycle
 
     init(config: DiskConfig, fileManager: FileManager = FileManager.default) throws {
+        // First, because the folder gets emptied later on, and these names could point at someone else's
+        guard Self.isSingleFolderName(config.name) else {
+            throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSFilePathErrorKey: config.name])
+        }
+
         self.config = config
         self.fileManager = fileManager
 
@@ -29,6 +34,9 @@ final class DiskStorage: Sendable {
     /// format can't be read any more, so it's never looked up and `removeExpiredObjects()` removes it.
     static let fileExtension = "cache"
 
+    /// Configuration
+    let config: DiskConfig
+
     // MARK: Private
 
     private enum Error: Swift.Error {
@@ -37,17 +45,16 @@ final class DiskStorage: Sendable {
 
     /// File manager to read/write to the disk (access protected by lock)
     private nonisolated(unsafe) let fileManager: FileManager
-    /// Configuration
-    private let config: DiskConfig
     /// The computed path `directory+name`
     private let path: String
-    /// Lock protecting all file I/O operations
+    /// Lock protecting all file I/O operations. Encoding and decoding stay outside of it, because
+    /// they run the type's own code, which may be slow or use this storage.
     private let lock = OSAllocatedUnfairLock()
 }
 
 extension DiskStorage: StorageAware {
     func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
-        try self.lock.withLockUnchecked {
+        let (data, date) = try self.lock.withLockUnchecked {
             let filePath = makeFilePath(for: key)
             do {
                 // The expiry comes first, so that an expired object isn't read or decoded
@@ -59,38 +66,19 @@ extension DiskStorage: StorageAware {
                     throw StorageError.notFound(key: key)
                 }
 
-                let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
-                let object: T = if T.self == Data.self, let data = data as? T {
-                    data
-                }
-                else {
-                    try decode(data, forKey: key)
-                }
-
-                return Entry(object: object, expiry: Expiry.date(date))
+                return (try Data(contentsOf: URL(fileURLWithPath: filePath)), date)
             }
             catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
                 throw StorageError.notFound(key: key)
             }
         }
+
+        let object: T = try decode(data, forKey: key)
+        return Entry(object: object, expiry: Expiry.date(date))
     }
 
     func setObject<T: Codable & Sendable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
-        try self.lock.withLockUnchecked {
-            let expiry = expiry ?? self.config.expiry
-
-            // Exactly `Data`, like when reading. `as? Data` alone would also unwrap a `Data?`.
-            let data: Data = if T.self == Data.self, let rawData = object as? Data {
-                rawData
-            }
-            else {
-                try encode(object, forKey: key)
-            }
-
-            let filePath = makeFilePath(for: key)
-            try writeFile(data, atPath: filePath)
-            try self.fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
-        }
+        try self.write(self.encode(object, forKey: key), forKey: key, expiry: expiry)
     }
 
     func existsObject(forKey key: String) throws -> Bool {
@@ -154,7 +142,42 @@ extension DiskStorage: StorageAware {
     }
 }
 
+/// The two halves of `setObject`, so that hybrid storage can encode before taking its own lock.
+extension DiskStorage {
+    /// Wraps encoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
+    func encode<T: Encodable>(_ object: T, forKey key: String) throws -> Data {
+        // Exactly `Data`, like when reading. `as? Data` alone would also unwrap a `Data?`.
+        if T.self == Data.self, let data = object as? Data {
+            return data
+        }
+
+        do {
+            return try DataSerializer.serialize(object: object)
+        }
+        catch let error as StorageError {
+            throw error
+        }
+        catch {
+            throw StorageError.encodingFailed(context: "DiskStorage: failed to encode object for key: \(key)", underlyingError: error)
+        }
+    }
+
+    func write(_ data: Data, forKey key: String, expiry: Expiry?) throws {
+        try self.lock.withLockUnchecked {
+            let expiry = expiry ?? self.config.expiry
+            let filePath = makeFilePath(for: key)
+            try writeFile(data, atPath: filePath)
+            try self.fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
+        }
+    }
+}
+
 private extension DiskStorage {
+    /// Whether the name is one folder inside the directory, rather than the directory itself or a path out of it.
+    static func isSingleFolderName(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.contains("/")
+    }
+
     /**
      Lists the files in the cache directory, hidden ones included, keeping the first failure instead
      of stopping at it. A file that vanished during the scan is skipped. Must be called while holding the lock.
@@ -281,21 +304,12 @@ private extension DiskStorage {
         }
     }
 
-    /// Wraps encoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
-    func encode(_ object: some Encodable, forKey key: String) throws -> Data {
-        do {
-            return try DataSerializer.serialize(object: object)
-        }
-        catch let error as StorageError {
-            throw error
-        }
-        catch {
-            throw StorageError.encodingFailed(context: "DiskStorage: failed to encode object for key: \(key)", underlyingError: error)
-        }
-    }
-
     /// Wraps decoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
     func decode<T: Decodable>(_ data: Data, forKey key: String) throws -> T {
+        if T.self == Data.self, let data = data as? T {
+            return data
+        }
+
         do {
             return try DataSerializer.deserialize(data: data)
         }

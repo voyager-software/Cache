@@ -446,21 +446,6 @@ struct MemoryStorageTests {
     }
 }
 
-/// Runs a hook before each removal, which can fail it or delete the file first.
-private final class HookedFileManager: FileManager, @unchecked Sendable {
-    var beforeRemoving: (String) throws -> Void = { _ in }
-
-    override func removeItem(atPath path: String) throws {
-        try self.beforeRemoving(path)
-        try super.removeItem(atPath: path)
-    }
-
-    override func removeItem(at url: URL) throws {
-        try self.beforeRemoving(url.path)
-        try super.removeItem(at: url)
-    }
-}
-
 @Suite("Purging with failures")
 struct PurgeFailureTests {
     struct RemovalFailed: Error {}
