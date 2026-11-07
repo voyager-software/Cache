@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-macos:
+    name: Test on macOS
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: swift test
+
+  # File protection is only compiled for iOS and tvOS, so its tests only run here.
+  test-ios:
+    name: Test on the iOS Simulator
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Find an iPhone simulator
+        id: simulator
+        run: |
+          udid=$(xcrun simctl list devices available -j | jq -r '
+            [.devices | to_entries | sort_by(.key)[]
+              | select(.key | contains("iOS"))
+              | .value[]
+              | select(.name | startswith("iPhone"))]
+            | last | .udid')
+          test "$udid" != "null"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      - run: xcodebuild test -scheme Cache -destination "id=${{ steps.simulator.outputs.udid }}"
+
+  build:
+    name: Build for ${{ matrix.name }}
+    runs-on: macos-26
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: watchOS
+            destination: generic/platform=watchOS
+          - name: tvOS
+            destination: generic/platform=tvOS
+          - name: visionOS
+            destination: generic/platform=visionOS
+          - name: Mac Catalyst
+            destination: generic/platform=macOS,variant=Mac Catalyst
+    steps:
+      - uses: actions/checkout@v7
+      - run: xcodebuild build -quiet -scheme Cache -destination "${{ matrix.destination }}" CODE_SIGNING_ALLOWED=NO
