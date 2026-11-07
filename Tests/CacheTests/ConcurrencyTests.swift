@@ -89,7 +89,7 @@ struct ConcurrencyTests {
         let storage = HybridStorage(memoryStorage: MemoryStorage(config: MemoryConfig()), diskStorage: disk)
         try storage.setObject(1, forKey: "inMemory", expiry: nil)
         let gate = Gate()
-        fileManager.beforeSettingAttributes = { gate.enter() }
+        fileManager.beforeSettingAttributes = { _ in gate.enter() }
 
         try whileHeldUp(at: gate, write: { try? storage.setObject(2, forKey: "slow", expiry: nil) }) {
             let value = try storage.object(ofType: Int.self, forKey: "inMemory")
@@ -97,6 +97,39 @@ struct ConcurrencyTests {
             #expect(value == 1)
             #expect(exists)
         }
+    }
+
+    @Test("Waiting for another write doesn't use up an object's expiry")
+    func expiryStartsAfterWaiting() throws {
+        let sandbox = try Sandbox()
+        let fileManager = HookedFileManager()
+        let disk = try DiskStorage(config: DiskConfig(name: "cache", directory: sandbox.root), fileManager: fileManager)
+        let storage = HybridStorage(memoryStorage: MemoryStorage(config: MemoryConfig()), diskStorage: disk)
+        let gate = Gate()
+        let slowFile = fileName(for: "slow")
+        fileManager.beforeSettingAttributes = { path in
+            if path.hasSuffix(slowFile) {
+                gate.enter()
+            }
+        }
+        let finished = DispatchSemaphore(value: 0)
+        var endOfWait = Date.distantFuture
+
+        try whileHeldUp(at: gate, write: { try? storage.setObject(1, forKey: "slow", expiry: nil) }) {
+            DispatchQueue.global().async {
+                try? storage.setObject(2, forKey: "short", expiry: .seconds(0.1))
+                finished.signal()
+            }
+            // Longer than the object's expiry
+            Thread.sleep(forTimeInterval: 0.3)
+            endOfWait = Date()
+        }
+        finished.wait()
+
+        // The file's date rather than a read, which would depend on how quickly this gets there
+        let file = sandbox.folder().appendingPathComponent(fileName(for: "short"))
+        let expiry = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+        #expect(try #require(expiry) > endOfWait)
     }
 
     // MARK: Using the storage from Codable code

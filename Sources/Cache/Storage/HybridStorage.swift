@@ -55,11 +55,12 @@ extension HybridStorage: StorageAware {
 
     func setObject(_ object: some Codable & Sendable, forKey key: String, expiry: Expiry? = nil) throws {
         let data = try diskStorage.encode(object, forKey: key)
-        // An object has one expiry, worked out once, so the copy in memory can't outlive the file
-        let expiry = Expiry.date((expiry ?? self.diskStorage.config.expiry).date)
 
         try self.lock.withLockUnchecked { changeCount in
             changeCount += 1
+            // An object has one expiry, worked out once, so the copy in memory can't outlive the file.
+            // Worked out here, so that waiting for the lock doesn't use up the object's lifetime.
+            let expiry = Expiry.date((expiry ?? self.diskStorage.config.expiry).date)
             // Disk first, because it's the one that can fail. Memory then never holds what wasn't saved.
             try self.diskStorage.write(data, forKey: key, expiry: expiry)
             self.memoryStorage.setObject(object, forKey: key, expiry: expiry)
