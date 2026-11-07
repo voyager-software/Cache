@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bgd" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1018"/>
+      <stop offset="1" stop-color="#101A2C"/>
+    </linearGradient>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0" stop-color="#19B8C8"/>
+      <stop offset="0.55" stop-color="#1B74D6"/>
+      <stop offset="1" stop-color="#2C3DAE"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bgd)"/>
+
+  <g transform="translate(96 96) scale(0.39)">
+    <rect width="512" height="512" rx="114" fill="url(#g)"/>
+    <g fill="none" stroke="#fff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="218" cy="137" rx="134" ry="46"/>
+      <path d="M84 137V353A134 46 0 0 0 352 353V137"/>
+      <path d="M84 245A134 46 0 0 0 352 245"/>
+    </g>
+    <circle cx="352" cy="345" r="76" fill="url(#g)" stroke="url(#g)" stroke-width="62"/>
+    <circle cx="352" cy="345" r="76" fill="url(#g)" stroke="#fff" stroke-width="30"/>
+    <path d="M352 305V345L380 363" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="330" y="168" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif" font-weight="700" font-size="76" fill="#FFFFFF">Cache</text>
+  <text x="332" y="222" font-family="-apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif" font-size="30" fill="#A9B8CC">Codable values on disk, in memory or both, with expiry</text>
+
+  <rect x="96" y="318" width="1088" height="226" rx="22" fill="#070B12" stroke="#1F2C40" stroke-width="2"/>
+  <g font-family="'SF Mono', Menlo, monospace" font-size="30" fill="#E6EDF7">
+    <text x="136" y="372"><tspan fill="#4FC3E8">try</tspan> storage.setObject(user, forKey: <tspan fill="#A9DCF5">"user"</tspan>,</text>
+    <text x="532" y="416">expiry: <tspan fill="#A9DCF5">.seconds(3600)</tspan>)</text>
+    <text x="136" y="470"><tspan fill="#4FC3E8">let</tspan> user = <tspan fill="#4FC3E8">try</tspan> storage.object(ofType: User.self,</text>
+    <text x="676" y="514">forKey: <tspan fill="#A9DCF5">"user"</tspan>)</text>
+  </g>
+
+  <text x="96" y="596" font-family="-apple-system, 'Helvetica Neue', sans-serif" font-size="24" fill="#74849A">iOS · macOS · tvOS · watchOS · visionOS  —  Thread safe, no dependencies, MIT</text>
+</svg>

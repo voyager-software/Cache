@@ -1,4 +1,6 @@
-# Cache
+<p align="center"><img src="Assets/logo.png" width="128" height="128" alt="Cache logo"></p>
+
+<h1 align="center">Cache</h1>
 
 Stores `Codable & Sendable` values on disk, in memory, or both, with expiry. Thread safe.
 
