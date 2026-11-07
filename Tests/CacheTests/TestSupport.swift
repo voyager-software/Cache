@@ -101,6 +101,12 @@ final class HookedFileManager: FileManager, @unchecked Sendable {
     }
 }
 
+/// Runs the code on a new thread. Not on a dispatch queue: tests run on Swift's cooperative threads,
+/// and while they block waiting for this, they can take every thread such a queue would get.
+func onNewThread(_ code: @escaping @Sendable () -> Void) {
+    Thread(block: code).start()
+}
+
 /// Holds one thread up until another has done something. Gives up after a while and remembers
 /// that it did, so that a test fails if the other thread was stuck behind it, rather than hanging.
 final class Gate: Sendable {

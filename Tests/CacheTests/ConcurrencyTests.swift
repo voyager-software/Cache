@@ -53,7 +53,7 @@ struct ConcurrencyTests {
     /// Runs the code on another thread while `write` is stuck at the gate.
     private func whileHeldUp(at gate: Gate, write: @escaping @Sendable () -> Void, _ code: () throws -> Void) throws {
         let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        onNewThread {
             write()
             finished.signal()
         }
@@ -109,7 +109,7 @@ struct ConcurrencyTests {
         var endOfWait = Date.distantFuture
 
         try whileHeldUp(at: gate, write: holdUp) {
-            DispatchQueue.global().async {
+            onNewThread {
                 try? storage.setObject(2, forKey: "short", expiry: .seconds(0.1))
                 finished.signal()
             }
