@@ -118,8 +118,10 @@ final class Gate: Sendable {
         }
     }
 
-    func waitUntilEntered() {
-        self.entered.wait()
+    /// Gives up after a while too, because a thread that failed before getting to the gate never will.
+    /// - Returns: Whether the other thread got to the gate in time
+    func waitUntilEntered() -> Bool {
+        self.entered.wait(timeout: .now() + 5) == .success
     }
 
     func release() {

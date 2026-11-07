@@ -57,12 +57,13 @@ struct ConcurrencyTests {
             write()
             finished.signal()
         }
-        gate.waitUntilEntered()
+        let entered = gate.waitUntilEntered()
         defer {
             gate.release()
             finished.wait()
             #expect(!gate.timedOut, "The code had to wait for the write to finish")
         }
+        try #require(entered, "The write never got to the gate")
         try code()
     }
 
