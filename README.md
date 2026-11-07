@@ -130,7 +130,8 @@ On iOS, tvOS we can also specify `protectionType` on `DiskConfig` to add a level
 A few things to know about `protectionType`:
 
 - It applies to files written from now on. A file that's already there keeps its protection until it's overwritten, so adding it to an existing cache doesn't protect what's already saved.
-- With `.complete`, reading and writing throw while the device is locked. Opening a `Storage` still works, and so does `existsObject(forKey:)`, which can return `true` for an object that can't be read at that moment.
+- With `.complete`, reading from disk and writing throw while the device is locked. Opening a `Storage` still works, and so does `existsObject(forKey:)`, which can return `true` for an object that can't be read at that moment.
+- It only protects files on disk. With hybrid storage, an object already in memory stays readable while the device is locked, so use disk-only storage for sensitive data.
 
 ### APIs
 

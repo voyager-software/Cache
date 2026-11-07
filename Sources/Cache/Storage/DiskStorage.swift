@@ -128,7 +128,7 @@ extension DiskStorage: StorageAware {
                 .totalFileAllocatedSizeKey,
             ]
             var resourceObjects = [ResourceObject]()
-            var filesToDelete = [URL]()
+            var filesToDelete = [ResourceObject]()
             var totalSize: UInt = 0
             var firstError: Swift.Error?
             let fileEnumerator = self.fileManager.enumerator(
@@ -147,11 +147,12 @@ extension DiskStorage: StorageAware {
                 do {
                     resourceValues = try url.resourceValues(forKeys: Set(resourceKeys))
                 }
-                catch {
+                catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
                     // A file that vanished during the scan doesn't need cleaning up
-                    if self.fileManager.fileExists(atPath: url.path) {
-                        firstError = firstError ?? error
-                    }
+                    continue
+                }
+                catch {
+                    firstError = firstError ?? error
                     continue
                 }
 
@@ -160,7 +161,7 @@ extension DiskStorage: StorageAware {
                 }
 
                 if let expiryDate = resourceValues.contentModificationDate, expiryDate.inThePast {
-                    filesToDelete.append(url)
+                    filesToDelete.append((url: url, resourceValues: resourceValues))
                     continue
                 }
 
@@ -171,8 +172,11 @@ extension DiskStorage: StorageAware {
             }
 
             // Remove expired objects
-            for url in filesToDelete {
-                removeFile(at: url, firstError: &firstError)
+            for file in filesToDelete {
+                // A file that couldn't be removed still takes up space, so it counts toward the max size
+                if !removeFile(at: file.url, firstError: &firstError), let fileSize = file.resourceValues.totalFileAllocatedSize {
+                    totalSize += UInt(fileSize)
+                }
             }
 
             // Remove objects if storage size exceeds max size

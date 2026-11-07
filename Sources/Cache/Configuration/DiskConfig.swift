@@ -15,7 +15,8 @@ public struct DiskConfig: Sendable {
     #if os(iOS) || os(tvOS)
     /// Data protection is used to store files in an encrypted format on disk and to decrypt them on demand.
     /// Support only on iOS and tvOS. Applies to files written from now on: a file that's already
-    /// there keeps its protection until it's overwritten.
+    /// there keeps its protection until it's overwritten. Only covers files on disk: with a memory
+    /// layer, an object already in memory stays readable while the device is locked.
     public let protectionType: FileProtectionType?
 
     public init(name: String, expiry: Expiry = .never,

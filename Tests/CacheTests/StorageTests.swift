@@ -404,6 +404,28 @@ struct PurgeFailureTests {
         #expect(try storage.existsObject(forKey: "1"))
         #expect(try storage.existsObject(forKey: "2") == false)
     }
+
+    @Test("An expired file that can't be removed still counts toward maxSize")
+    func stuckExpiredFileCountsTowardMaxSize() throws {
+        let sandbox = try Sandbox()
+        let fileManager = HookedFileManager()
+        let storage = try DiskStorage(config: DiskConfig(name: "cache", maxSize: 40000, directory: sandbox.root), fileManager: fileManager)
+        // Only over maxSize if the stuck file is counted
+        try storage.setObject(Data(repeating: 1, count: 35000), forKey: "stuck", expiry: .seconds(-10))
+        try storage.setObject(Data(repeating: 1, count: 5000), forKey: "a", expiry: .seconds(60))
+        try storage.setObject(Data(repeating: 1, count: 5000), forKey: "b", expiry: .seconds(120))
+        fileManager.beforeRemoving = { path in
+            if path.hasSuffix(MD5.hash("stuck")) {
+                throw RemovalFailed()
+            }
+        }
+
+        #expect(throws: RemovalFailed.self) {
+            try storage.removeExpiredObjects()
+        }
+
+        #expect(try sandbox.files() == [MD5.hash("stuck")])
+    }
 }
 
 #if os(iOS) || os(tvOS)
