@@ -34,6 +34,21 @@ struct StorageTests {
         #expect(try Data(contentsOf: file) == data)
     }
 
+    @Test("An optional Data can be read back, with or without a value", arguments: Sandbox.Mode.allCases)
+    func optionalData(mode: Sandbox.Mode) throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(mode)
+        // Not valid JSON or UTF-8, so it can't get through by accident
+        let value: Data? = Data([0, 255, 254, 1])
+        let empty: Data? = nil
+
+        try storage.setObject(value, forKey: "value")
+        try storage.setObject(empty, forKey: "empty")
+
+        #expect(try storage.object(ofType: Data?.self, forKey: "value") == value)
+        #expect(try storage.object(ofType: Data?.self, forKey: "empty") == nil)
+    }
+
     @Test("Hybrid storage finds what an earlier instance saved")
     func hybridReadsFromDisk() throws {
         let sandbox = try Sandbox()
@@ -314,6 +329,42 @@ struct StorageTests {
 
         try storage.removeAll()
         #expect(try storage.diskSize() == 0)
+    }
+
+    @Test("Hidden files count toward diskSize, and purging removes them")
+    func hiddenFiles() throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(.disk)
+        try Data(repeating: 1, count: 5000).write(to: sandbox.folder().appendingPathComponent(".hidden"))
+
+        #expect(try storage.diskSize() >= 5000)
+
+        try storage.removeExpiredObjects()
+
+        #expect(try sandbox.files().isEmpty)
+    }
+
+    @Test("A folder that can't be read makes diskSize and purging throw, after doing what they can")
+    func unreadableFolder() throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(.disk)
+        try storage.setObject(1, forKey: "old", expiry: .seconds(-10))
+        let locked = sandbox.folder().appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer {
+            // Otherwise the sandbox can't clean it up
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        }
+
+        #expect(throws: (any Error).self) {
+            try storage.diskSize()
+        }
+        #expect(throws: (any Error).self) {
+            try storage.removeExpiredObjects()
+        }
+
+        #expect(try sandbox.files() == ["locked"])
     }
 
     @Test("diskSize is 0 without a disk, or without the folder")

@@ -75,11 +75,12 @@ extension DiskStorage: StorageAware {
         }
     }
 
-    func setObject(_ object: some Codable & Sendable, forKey key: String, expiry: Expiry? = nil) throws {
+    func setObject<T: Codable & Sendable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
         try self.lock.withLockUnchecked {
             let expiry = expiry ?? self.config.expiry
 
-            let data: Data = if let rawData = object as? Data {
+            // Exactly `Data`, like when reading. `as? Data` alone would also unwrap a `Data?`.
+            let data: Data = if T.self == Data.self, let rawData = object as? Data {
                 rawData
             }
             else {
@@ -155,8 +156,8 @@ extension DiskStorage: StorageAware {
 
 private extension DiskStorage {
     /**
-     Lists the files in the cache directory, keeping the first failure instead of stopping at it.
-     A file that vanished during the scan is skipped. Must be called while holding the lock.
+     Lists the files in the cache directory, hidden ones included, keeping the first failure instead
+     of stopping at it. A file that vanished during the scan is skipped. Must be called while holding the lock.
      - Parameter keys: The resource values that the caller needs
      - Parameter firstError: Keeps the first failure
      */
@@ -164,16 +165,24 @@ private extension DiskStorage {
                    firstError: inout Swift.Error?) throws -> [(url: URL, resourceValues: URLResourceValues)]
     {
         let resourceKeys = keys.union([.isDirectoryKey])
+        var enumerationError: Swift.Error?
         let fileEnumerator = self.fileManager.enumerator(
             at: URL(fileURLWithPath: self.path),
             includingPropertiesForKeys: Array(resourceKeys),
-            options: .skipsHiddenFiles,
-            errorHandler: nil
+            options: [],
+            errorHandler: { _, error in
+                let code = (error as? CocoaError)?.code
+                if code != .fileReadNoSuchFile, code != .fileNoSuchFile {
+                    enumerationError = enumerationError ?? error
+                }
+                return true
+            }
         )
 
         guard let urlArray = fileEnumerator?.allObjects as? [URL] else {
             throw Error.fileEnumeratorFailed
         }
+        firstError = firstError ?? enumerationError
 
         var files = [(url: URL, resourceValues: URLResourceValues)]()
         for url in urlArray {
