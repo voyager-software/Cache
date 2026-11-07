@@ -84,9 +84,9 @@ Other file system errors are passed through unchanged, for example reading a pro
 
 ## Authors
 
-- Original idea: [Hyper](http://hyper.no)
+- Based on [Cache](https://github.com/hyperoslo/Cache) by [Hyper](http://hyper.no)
 - Reworked, simplified and modernized: Gabor S
 
 ## License
 
-MIT
+MIT. See [LICENSE.md](LICENSE.md).
