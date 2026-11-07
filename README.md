@@ -58,9 +58,9 @@ MemoryConfig(
 )
 ```
 
-The name must be a single folder name. An empty name, `.`, `..` and anything with a `/` make `Storage` throw `CocoaError(.fileWriteInvalidFileName)`.
+The name must be a single folder name. An empty name, `.`, `..`, and anything with a `/` or a control character such as NUL make `Storage` throw `CocoaError(.fileWriteInvalidFileName)`. So does a `directory` with a NUL in it.
 
-The folder must be used only by the storage: `removeExpiredObjects()` deletes every file in it that isn't one of its objects, whatever its age and hidden files included.
+`removeExpiredObjects()` and `removeAll()` only delete files named like the storage's objects, directly in its folder. Anything else in the folder, including subfolders, is left alone.
 
 ## Expiry
 

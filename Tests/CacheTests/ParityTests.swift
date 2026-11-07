@@ -239,7 +239,8 @@ struct HybridExpiryTests {
 @Suite("Folder names")
 struct FolderNameTests {
     @Test("A name that isn't a single folder is refused, with nothing touched",
-          arguments: ["", ".", "..", "../escaped", "a/b", "/absolute", "a/"])
+          arguments: ["", ".", "..", "../escaped", "a/b", "/absolute", "a/",
+                      "\u{0}", "\u{0}x", "a\u{0}b", "a\nb", "\t", "\u{7F}"])
     func refused(name: String) throws {
         let sandbox = try Sandbox()
         let bystander = sandbox.root.appendingPathComponent("bystander.txt")
@@ -247,6 +248,21 @@ struct FolderNameTests {
 
         let error = try #require(throws: CocoaError.self) {
             try Storage(diskConfig: DiskConfig(name: name, directory: sandbox.root))
+        }
+
+        #expect(error.code == .fileWriteInvalidFileName)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: sandbox.root.path) == ["bystander.txt"])
+    }
+
+    @Test("A directory with a NUL in it is refused, with nothing touched")
+    func refusedDirectory() throws {
+        let sandbox = try Sandbox()
+        let bystander = sandbox.root.appendingPathComponent("bystander.txt")
+        try Data([1]).write(to: bystander)
+        let directory = sandbox.root.appendingPathComponent("a\u{0}b", isDirectory: true)
+
+        let error = try #require(throws: CocoaError.self) {
+            try Storage(diskConfig: DiskConfig(name: "cache", directory: directory))
         }
 
         #expect(error.code == .fileWriteInvalidFileName)

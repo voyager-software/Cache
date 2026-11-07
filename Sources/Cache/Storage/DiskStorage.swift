@@ -24,13 +24,22 @@ final class DiskStorage: Sendable {
         }
 
         // path
-        self.path = url.appendingPathComponent(config.name, isDirectory: true).path
+        let path = url.appendingPathComponent(config.name, isDirectory: true).path
+        // File system calls stop reading a path at a NUL, so they would act on a different folder.
+        // The URL keeps a NUL as %00, which its path may or may not decode, so both are checked.
+        guard url.isFileURL, !path.unicodeScalars.contains("\u{0}"),
+              url.absoluteString.range(of: "%00", options: .caseInsensitive) == nil,
+              URL(fileURLWithPath: path, isDirectory: true).lastPathComponent == config.name
+        else {
+            throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSFilePathErrorKey: path])
+        }
+        self.path = path
         try createDirectory()
     }
 
     // MARK: Internal
 
-    /// Files in the current format end in this. Anything else was left by an older version, whose
+    /// Files in the current format end in this. A file named with just the hash was left by 4.x, whose
     /// format can't be read any more, so it's never looked up and `removeExpiredObjects()` removes it.
     static let fileExtension = "cache"
 
@@ -101,10 +110,20 @@ extension DiskStorage: StorageAware {
         }
     }
 
+    /// Removes this storage's files one by one rather than the whole folder, so that a wrong path
+    /// can't take anything else with it.
     func removeAll() throws {
         try self.lock.withLockUnchecked {
-            try removeItemIfPresent(atPath: self.path)
+            var firstError: Swift.Error?
+
+            for file in try listOwnFiles(keys: [], firstError: &firstError) {
+                removeFile(at: file.url, firstError: &firstError)
+            }
             try createDirectory()
+
+            if let firstError {
+                throw firstError
+            }
         }
     }
 
@@ -112,7 +131,7 @@ extension DiskStorage: StorageAware {
         try self.lock.withLockUnchecked {
             var firstError: Swift.Error?
 
-            for file in try listFiles(keys: [.contentModificationDateKey], firstError: &firstError) {
+            for file in try listOwnFiles(keys: [.contentModificationDateKey], firstError: &firstError) {
                 let isExpired = file.resourceValues.contentModificationDate?.inThePast ?? false
                 if isExpired || file.url.pathExtension != Self.fileExtension {
                     removeFile(at: file.url, firstError: &firstError)
@@ -174,13 +193,36 @@ extension DiskStorage {
 
 private extension DiskStorage {
     /// Whether the name is one folder inside the directory, rather than the directory itself or a path out of it.
+    /// Control characters are refused too: file system calls stop reading a path at a NUL.
     static func isSingleFolderName(_ name: String) -> Bool {
         !name.isEmpty && name != "." && name != ".." && !name.contains("/")
+            && !name.unicodeScalars.contains { $0.properties.generalCategory == .control }
+    }
+
+    /// Whether the file is named like one of this storage's objects: the key's hash, with the extension
+    /// or without it like in 4.x. Nothing else is ever deleted, even if the folder holds other files.
+    static func isOwnFileName(_ name: String) -> Bool {
+        let suffix = ".\(Self.fileExtension)"
+        let hash = name.hasSuffix(suffix) ? name.dropLast(suffix.count) : Substring(name)
+        return hash.count == 32 && hash.allSatisfy { $0.isASCII && $0.isHexDigit }
+    }
+
+    /// Lists this storage's own files: directly in the cache folder, and named like its objects.
+    /// Must be called while holding the lock.
+    func listOwnFiles(keys: Set<URLResourceKey>,
+                      firstError: inout Swift.Error?) throws -> [(url: URL, resourceValues: URLResourceValues)]
+    {
+        let folder = URL(fileURLWithPath: self.path, isDirectory: true).resolvingSymlinksInPath().path
+        return try listFiles(keys: keys, firstError: &firstError).filter { file in
+            Self.isOwnFileName(file.url.lastPathComponent)
+                && file.url.deletingLastPathComponent().resolvingSymlinksInPath().path == folder
+        }
     }
 
     /**
-     Lists the files in the cache directory, hidden ones included, keeping the first failure instead
-     of stopping at it. A file that vanished during the scan is skipped. Must be called while holding the lock.
+     Lists the files directly in the cache directory, hidden ones included, without looking inside folders.
+     Keeps the first failure instead of stopping at it. A file that vanished during the scan is skipped.
+     Must be called while holding the lock.
      - Parameter keys: The resource values that the caller needs
      - Parameter firstError: Keeps the first failure
      */
@@ -192,7 +234,7 @@ private extension DiskStorage {
         let fileEnumerator = self.fileManager.enumerator(
             at: URL(fileURLWithPath: self.path),
             includingPropertiesForKeys: Array(resourceKeys),
-            options: [],
+            options: [.skipsSubdirectoryDescendants],
             errorHandler: { _, error in
                 let code = (error as? CocoaError)?.code
                 if code != .fileReadNoSuchFile, code != .fileNoSuchFile {

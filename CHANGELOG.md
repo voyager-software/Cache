@@ -5,11 +5,14 @@
 Bug fixes
 - With both disk and memory, an object could stay readable after its file expired, because the copy in memory used `MemoryConfig.expiry`. An object now has one expiry, and `entry(ofType:forKey:)` reports the same one from memory and from disk.
 - A `DiskConfig` name that isn't a single folder is refused, because purging or `removeAll()` could delete files outside the cache. With an empty name, they emptied `directory` itself. `Storage` now throws `CocoaError(.fileWriteInvalidFileName)`.
+- A `DiskConfig` name with a control character such as NUL is refused too, and so is a `directory` with a NUL in it. File system calls stop reading a path at a NUL, so purging could act on files far outside the cache.
+- `removeExpiredObjects()` and `removeAll()` only delete files named like the storage's objects, directly in its folder. Purging used to delete every other file in the folder and in its subfolders, and `removeAll()` deleted the whole folder, so a wrong path could cost files that had nothing to do with the cache.
 - An object in memory no longer waits for disk access or encoding of another object.
 - Encoding and decoding no longer hold any lock, so a slow `Codable` type doesn't hold up other objects, and its code can use the storage it's being saved in.
 
 Behaviour changes
 - `MemoryConfig.expiry` is now only used by memory-only storage. With a disk, objects use the expiry from `DiskConfig`.
+- Files in the cache folder that aren't the storage's, hidden ones included, are no longer deleted by `removeExpiredObjects()` or `removeAll()`. They still count toward `diskSize()`.
 - A `DiskConfig` name with a `/`, like `"Images/Thumbnails"`, used to create nested folders and now throws. Pass the parent folder as `directory` instead. Use the same full path to keep what's already cached there.
 
 Other

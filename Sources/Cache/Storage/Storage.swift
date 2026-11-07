@@ -88,16 +88,17 @@ extension Storage: StorageAware {
     }
 
     /**
-     Removes all objects from the cache storage.
+     Removes all objects from the cache storage. On disk, it deletes the storage's own files,
+     including ones from an older version of this package, and leaves anything else in the folder.
+     A file that can't be removed doesn't stop the others. The first failure is thrown at the end.
      */
     public func removeAll() throws {
         try self.internalStorage.removeAll()
     }
 
     /**
-     Clears all expired objects, and deletes every other file in the storage's folder that isn't one
-     of its objects, whatever its age and hidden files included. That covers files left behind by an
-     older version of this package, so the folder must be used only by this storage.
+     Clears all expired objects, and files left behind by an older version of this package, whatever
+     their age. Only files named like the storage's objects, directly in its folder, are ever deleted.
      A file that can't be removed doesn't stop the others. The first failure is thrown at the end.
      */
     public func removeExpiredObjects() throws {
