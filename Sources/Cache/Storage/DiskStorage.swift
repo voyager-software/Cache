@@ -6,6 +6,11 @@ final class DiskStorage: Sendable {
     // MARK: Lifecycle
 
     init(config: DiskConfig, fileManager: FileManager = FileManager.default) throws {
+        // First, because the folder gets emptied later on, and these names could point at someone else's
+        guard Self.isSingleFolderName(config.name) else {
+            throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSFilePathErrorKey: config.name])
+        }
+
         self.config = config
         self.fileManager = fileManager
 
@@ -19,15 +24,31 @@ final class DiskStorage: Sendable {
         }
 
         // path
-        self.path = url.appendingPathComponent(config.name, isDirectory: true).path
+        // A NUL in a URL can make it come out as the root folder, depending on the OS version: on
+        // macOS 26, appending "a\u{0}b" to a folder's URL gives file:///. So the root folder is refused,
+        // and the name is joined as a string rather than with URL methods, then checked.
+        let directoryPath = url.standardizedFileURL.path
+        let path = (directoryPath as NSString).appendingPathComponent(config.name)
+        guard url.isFileURL, !directoryPath.isEmpty, directoryPath != "/",
+              !path.unicodeScalars.contains("\u{0}"),
+              url.absoluteString.range(of: "%00", options: .caseInsensitive) == nil,
+              (path as NSString).deletingLastPathComponent == directoryPath,
+              (path as NSString).lastPathComponent == config.name
+        else {
+            throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSFilePathErrorKey: path])
+        }
+        self.path = path
         try createDirectory()
     }
 
     // MARK: Internal
 
-    /// Files in the current format end in this. Anything else was left by an older version, whose
+    /// Files in the current format end in this. A file named with just the hash was left by 4.x, whose
     /// format can't be read any more, so it's never looked up and `removeExpiredObjects()` removes it.
     static let fileExtension = "cache"
+
+    /// Configuration
+    let config: DiskConfig
 
     // MARK: Private
 
@@ -37,17 +58,16 @@ final class DiskStorage: Sendable {
 
     /// File manager to read/write to the disk (access protected by lock)
     private nonisolated(unsafe) let fileManager: FileManager
-    /// Configuration
-    private let config: DiskConfig
     /// The computed path `directory+name`
     private let path: String
-    /// Lock protecting all file I/O operations
+    /// Lock protecting all file I/O operations. Encoding and decoding stay outside of it, because
+    /// they run the type's own code, which may be slow or use this storage.
     private let lock = OSAllocatedUnfairLock()
 }
 
 extension DiskStorage: StorageAware {
     func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
-        try self.lock.withLockUnchecked {
+        let (data, date) = try self.lock.withLockUnchecked {
             let filePath = makeFilePath(for: key)
             do {
                 // The expiry comes first, so that an expired object isn't read or decoded
@@ -59,38 +79,19 @@ extension DiskStorage: StorageAware {
                     throw StorageError.notFound(key: key)
                 }
 
-                let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
-                let object: T = if T.self == Data.self, let data = data as? T {
-                    data
-                }
-                else {
-                    try decode(data, forKey: key)
-                }
-
-                return Entry(object: object, expiry: Expiry.date(date))
+                return (try Data(contentsOf: URL(fileURLWithPath: filePath)), date)
             }
             catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
                 throw StorageError.notFound(key: key)
             }
         }
+
+        let object: T = try decode(data, forKey: key)
+        return Entry(object: object, expiry: Expiry.date(date))
     }
 
     func setObject<T: Codable & Sendable>(_ object: T, forKey key: String, expiry: Expiry? = nil) throws {
-        try self.lock.withLockUnchecked {
-            let expiry = expiry ?? self.config.expiry
-
-            // Exactly `Data`, like when reading. `as? Data` alone would also unwrap a `Data?`.
-            let data: Data = if T.self == Data.self, let rawData = object as? Data {
-                rawData
-            }
-            else {
-                try encode(object, forKey: key)
-            }
-
-            let filePath = makeFilePath(for: key)
-            try writeFile(data, atPath: filePath)
-            try self.fileManager.setAttributes([.modificationDate: expiry.date], ofItemAtPath: filePath)
-        }
+        try self.write(self.encode(object, forKey: key), forKey: key, expiry: expiry)
     }
 
     func existsObject(forKey key: String) throws -> Bool {
@@ -113,10 +114,20 @@ extension DiskStorage: StorageAware {
         }
     }
 
+    /// Removes this storage's files one by one rather than the whole folder, so that a wrong path
+    /// can't take anything else with it.
     func removeAll() throws {
         try self.lock.withLockUnchecked {
-            try removeItemIfPresent(atPath: self.path)
+            var firstError: Swift.Error?
+
+            for file in try listOwnFiles(keys: [], firstError: &firstError) {
+                removeFile(at: file.url, firstError: &firstError)
+            }
             try createDirectory()
+
+            if let firstError {
+                throw firstError
+            }
         }
     }
 
@@ -124,7 +135,7 @@ extension DiskStorage: StorageAware {
         try self.lock.withLockUnchecked {
             var firstError: Swift.Error?
 
-            for file in try listFiles(keys: [.contentModificationDateKey], firstError: &firstError) {
+            for file in try listOwnFiles(keys: [.contentModificationDateKey], firstError: &firstError) {
                 let isExpired = file.resourceValues.contentModificationDate?.inThePast ?? false
                 if isExpired || file.url.pathExtension != Self.fileExtension {
                     removeFile(at: file.url, firstError: &firstError)
@@ -154,10 +165,73 @@ extension DiskStorage: StorageAware {
     }
 }
 
+/// The two halves of `setObject`, so that hybrid storage can encode before taking its own lock.
+extension DiskStorage {
+    /// Wraps encoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
+    func encode<T: Encodable>(_ object: T, forKey key: String) throws -> Data {
+        // Exactly `Data`, like when reading. `as? Data` alone would also unwrap a `Data?`.
+        if T.self == Data.self, let data = object as? Data {
+            return data
+        }
+
+        do {
+            return try DataSerializer.serialize(object: object)
+        }
+        catch let error as StorageError {
+            throw error
+        }
+        catch {
+            throw StorageError.encodingFailed(context: "DiskStorage: failed to encode object for key: \(key)", underlyingError: error)
+        }
+    }
+
+    /// Works out the expiry date while holding the lock, so that waiting for it doesn't use up the
+    /// object's lifetime.
+    /// - Returns: The expiry date the file got
+    @discardableResult
+    func write(_ data: Data, forKey key: String, expiry: Expiry?) throws -> Date {
+        try self.lock.withLockUnchecked {
+            let filePath = makeFilePath(for: key)
+            try writeFile(data, atPath: filePath)
+            let date = (expiry ?? self.config.expiry).date
+            try self.fileManager.setAttributes([.modificationDate: date], ofItemAtPath: filePath)
+            return date
+        }
+    }
+}
+
 private extension DiskStorage {
+    /// Whether the name is one folder inside the directory, rather than the directory itself or a path out of it.
+    /// Control characters are refused too: file system calls stop reading a path at a NUL.
+    static func isSingleFolderName(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.contains("/")
+            && !name.unicodeScalars.contains { $0.properties.generalCategory == .control }
+    }
+
+    /// Whether the file is named like one of this storage's objects: the key's hash, with the extension
+    /// or without it like in 4.x. Nothing else is ever deleted, even if the folder holds other files.
+    static func isOwnFileName(_ name: String) -> Bool {
+        let suffix = ".\(Self.fileExtension)"
+        let hash = name.hasSuffix(suffix) ? name.dropLast(suffix.count) : Substring(name)
+        return hash.count == 32 && hash.allSatisfy { $0.isASCII && $0.isHexDigit }
+    }
+
+    /// Lists this storage's own files: directly in the cache folder, and named like its objects.
+    /// Must be called while holding the lock.
+    func listOwnFiles(keys: Set<URLResourceKey>,
+                      firstError: inout Swift.Error?) throws -> [(url: URL, resourceValues: URLResourceValues)]
+    {
+        let folder = URL(fileURLWithPath: self.path, isDirectory: true).resolvingSymlinksInPath().path
+        return try listFiles(keys: keys, firstError: &firstError).filter { file in
+            Self.isOwnFileName(file.url.lastPathComponent)
+                && file.url.deletingLastPathComponent().resolvingSymlinksInPath().path == folder
+        }
+    }
+
     /**
-     Lists the files in the cache directory, hidden ones included, keeping the first failure instead
-     of stopping at it. A file that vanished during the scan is skipped. Must be called while holding the lock.
+     Lists the files directly in the cache directory, hidden ones included, without looking inside folders.
+     Keeps the first failure instead of stopping at it. A file that vanished during the scan is skipped.
+     Must be called while holding the lock.
      - Parameter keys: The resource values that the caller needs
      - Parameter firstError: Keeps the first failure
      */
@@ -169,7 +243,7 @@ private extension DiskStorage {
         let fileEnumerator = self.fileManager.enumerator(
             at: URL(fileURLWithPath: self.path),
             includingPropertiesForKeys: Array(resourceKeys),
-            options: [],
+            options: [.skipsSubdirectoryDescendants],
             errorHandler: { _, error in
                 let code = (error as? CocoaError)?.code
                 if code != .fileReadNoSuchFile, code != .fileNoSuchFile {
@@ -281,21 +355,12 @@ private extension DiskStorage {
         }
     }
 
-    /// Wraps encoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
-    func encode(_ object: some Encodable, forKey key: String) throws -> Data {
-        do {
-            return try DataSerializer.serialize(object: object)
-        }
-        catch let error as StorageError {
-            throw error
-        }
-        catch {
-            throw StorageError.encodingFailed(context: "DiskStorage: failed to encode object for key: \(key)", underlyingError: error)
-        }
-    }
-
     /// Wraps decoding failures in a `StorageError`, unless the type's own `Codable` code already threw one.
     func decode<T: Decodable>(_ data: Data, forKey key: String) throws -> T {
+        if T.self == Data.self, let data = data as? T {
+            return data
+        }
+
         do {
             return try DataSerializer.deserialize(data: data)
         }

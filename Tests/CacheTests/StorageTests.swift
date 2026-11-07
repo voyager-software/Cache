@@ -331,21 +331,43 @@ struct StorageTests {
         #expect(try storage.diskSize() == 0)
     }
 
-    @Test("Hidden files count toward diskSize, and purging removes them")
+    @Test("Hidden files count toward diskSize")
     func hiddenFiles() throws {
         let sandbox = try Sandbox()
         let storage = try sandbox.storage(.disk)
         try Data(repeating: 1, count: 5000).write(to: sandbox.folder().appendingPathComponent(".hidden"))
 
         #expect(try storage.diskSize() >= 5000)
-
-        try storage.removeExpiredObjects()
-
-        #expect(try sandbox.files().isEmpty)
     }
 
-    @Test("A folder that can't be read makes diskSize and purging throw, after doing what they can")
-    func unreadableFolder() throws {
+    @Test("Purging and removeAll leave files that aren't the storage's", arguments: [Sandbox.Mode.disk, .hybrid])
+    func othersFilesAreKept(mode: Sandbox.Mode) throws {
+        let sandbox = try Sandbox()
+        let storage = try sandbox.storage(mode)
+        try storage.setObject("old", forKey: "old", expiry: .seconds(-10))
+        try storage.setObject("new", forKey: "new")
+        let others = [".hidden", "notes.txt", "README", "ABC.cache", "\(MD5.hash("key")).txt"]
+        for name in others {
+            try Data([1]).write(to: sandbox.folder().appendingPathComponent(name))
+        }
+        // A folder named like an object, with a file inside named like one too
+        let subfolder = sandbox.folder().appendingPathComponent(MD5.hash("folder"), isDirectory: true)
+        try FileManager.default.createDirectory(at: subfolder, withIntermediateDirectories: true)
+        try Data([1]).write(to: subfolder.appendingPathComponent(fileName(for: "inside")))
+        try FileManager.default.setAttributes([.modificationDate: Date.distantPast],
+                                              ofItemAtPath: subfolder.appendingPathComponent(fileName(for: "inside")).path)
+        let kept = Set(others + [MD5.hash("folder")])
+
+        try storage.removeExpiredObjects()
+        #expect(try Set(sandbox.files()) == kept.union([fileName(for: "new")]))
+
+        try storage.removeAll()
+        #expect(try Set(sandbox.files()) == kept)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: subfolder.path) == [fileName(for: "inside")])
+    }
+
+    @Test("Purging and diskSize don't look inside folders, even ones that can't be read")
+    func unreadableSubfolder() throws {
         let sandbox = try Sandbox()
         let storage = try sandbox.storage(.disk)
         try storage.setObject(1, forKey: "old", expiry: .seconds(-10))
@@ -357,12 +379,8 @@ struct StorageTests {
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
         }
 
-        #expect(throws: (any Error).self) {
-            try storage.diskSize()
-        }
-        #expect(throws: (any Error).self) {
-            try storage.removeExpiredObjects()
-        }
+        _ = try storage.diskSize()
+        try storage.removeExpiredObjects()
 
         #expect(try sandbox.files() == ["locked"])
     }
@@ -443,21 +461,6 @@ struct MemoryStorageTests {
 
         #expect(storage.lockedKeys.withLock { $0 } == ["kept"])
         #expect(try storage.object(ofType: Int.self, forKey: "kept") == 1)
-    }
-}
-
-/// Runs a hook before each removal, which can fail it or delete the file first.
-private final class HookedFileManager: FileManager, @unchecked Sendable {
-    var beforeRemoving: (String) throws -> Void = { _ in }
-
-    override func removeItem(atPath path: String) throws {
-        try self.beforeRemoving(path)
-        try super.removeItem(atPath: path)
-    }
-
-    override func removeItem(at url: URL) throws {
-        try self.beforeRemoving(url.path)
-        try super.removeItem(at: url)
     }
 }
 

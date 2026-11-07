@@ -9,7 +9,8 @@ public final class Storage: Sendable {
     /// - Parameters:
     ///   - diskConfig: Configuration for disk storage
     ///   - memoryConfig: Optional. Pass config to add an in-memory layer
-    /// - Throws: Throw StorageError if any.
+    /// - Throws: `CocoaError(.fileWriteInvalidFileName)` if the config's name isn't a single folder name,
+    ///   or the file system's error if the folder can't be created.
     public init(diskConfig: DiskConfig, memoryConfig: MemoryConfig? = nil) throws {
         let disk = try DiskStorage(config: diskConfig)
 
@@ -37,7 +38,9 @@ public final class Storage: Sendable {
 
 extension Storage: StorageAware {
     /**
-     Tries to retrieve the object from the storage.
+     Tries to retrieve the object from the storage. Use the type the object was written as: with
+     any other type, the kinds of storage can give different results, including the file's raw
+     bytes when asking for `Data`.
      - Parameter key: Unique key to identify the object in the cache
      - Returns: Cached object
      - Throws: `StorageError.notFound` if there's no object for the key, or it has expired
@@ -85,16 +88,17 @@ extension Storage: StorageAware {
     }
 
     /**
-     Removes all objects from the cache storage.
+     Removes all objects from the cache storage. On disk, it deletes the storage's own files,
+     including ones from an older version of this package, and leaves anything else in the folder.
+     A file that can't be removed doesn't stop the others. The first failure is thrown at the end.
      */
     public func removeAll() throws {
         try self.internalStorage.removeAll()
     }
 
     /**
-     Clears all expired objects, and deletes every other file in the storage's folder that isn't one
-     of its objects, whatever its age and hidden files included. That covers files left behind by an
-     older version of this package, so the folder must be used only by this storage.
+     Clears all expired objects, and files left behind by an older version of this package, whatever
+     their age. Only files named like the storage's objects, directly in its folder, are ever deleted.
      A file that can't be removed doesn't stop the others. The first failure is thrown at the end.
      */
     public func removeExpiredObjects() throws {
