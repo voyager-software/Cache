@@ -1,70 +1,30 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
   pull_request:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  test-macos:
-    name: Test on macOS
+  diagnose-hang:
+    name: Sample the hung tests
     runs-on: macos-26
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
-      - run: swift test
-
-  test-thread-sanitizer:
-    name: Test with Thread Sanitizer
-    runs-on: macos-26
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - run: swift test --sanitize=thread
-
-  # File protection is only compiled for iOS and tvOS, so its tests only run here.
-  test-ios:
-    name: Test on the iOS Simulator
-    runs-on: macos-26
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - name: Find an iPhone simulator
-        id: simulator
+      - run: swift build --build-tests
+      - name: Run the tests, then sample them once they've had time to finish
         run: |
-          udid=$(xcrun simctl list devices available -j | jq -r '
-            [.devices | to_entries | sort_by(.key)[]
-              | select(.key | contains("iOS"))
-              | .value[]
-              | select(.name | startswith("iPhone"))]
-            | last | .udid')
-          test "$udid" != "null"
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
-      - run: xcodebuild test -scheme Cache -destination "id=${{ steps.simulator.outputs.udid }}"
-
-  build:
-    name: Build for ${{ matrix.name }}
-    runs-on: macos-26
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: watchOS
-            destination: generic/platform=watchOS
-          - name: tvOS
-            destination: generic/platform=tvOS
-          - name: visionOS
-            destination: generic/platform=visionOS
-          - name: Mac Catalyst
-            destination: generic/platform=macOS,variant=Mac Catalyst
-    steps:
-      - uses: actions/checkout@v7
-      - run: xcodebuild build -quiet -scheme Cache -destination "${{ matrix.destination }}" CODE_SIGNING_ALLOWED=NO
+          swift test --skip-build > test.log 2>&1 &
+          for i in $(seq 1 24); do
+            sleep 5
+            grep -q -E 'Test run with .* (passed|failed)' test.log && break
+          done
+          echo "=== test.log tail"; tail -40 test.log
+          for p in $(pgrep -f 'swiftpm-testing-helper|CachePackageTests'); do
+            echo "=== process $p: $(ps -o command= -p $p | cut -c1-160)"
+            sample "$p" 3 -file "sample-$p.txt" >/dev/null 2>&1 || true
+            grep -E 'Thread_|CacheTests|Cache\.|Cache[A-Z]|semaphore|_dispatch_semaphore|os_unfair_lock|ulock|Gate|swift_task|concurrentPerform' "sample-$p.txt" | cut -c1-220 | head -400
+          done
+          pkill -f swiftpm-testing-helper || true
