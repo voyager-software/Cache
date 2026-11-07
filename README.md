@@ -1,228 +1,88 @@
-## Table of Contents
+# Cache
 
-* [Description](#description)
-* [Key features](#key-features)
-* [Usage](#usage)
-  * [Storage](#storage)
-  * [Configuration](#configuration)
-  * [APIs](#apis)
-  * [Expiry date](#expiry-date)
-* [What about images?](#what-about-images)
-* [Authors](#authors)
-* [License](#license)
+Stores `Codable & Sendable` values on disk, in memory, or both, with expiry. Thread safe.
 
-## Description
+Requires iOS 16, macOS 13, tvOS 16, watchOS 9 or visionOS 1.
 
-**Cache** doesn't claim to be unique in this area, but it's not another monster
-library that gives you a god's power. It does nothing but caching, but it does it well. It offers a good public API
-with out-of-box implementations and great customization possibilities. `Cache` utilizes `Codable` to perform serialization.
+## Installation
 
-## Key features
-
-- [x] Works with `Codable` and `Sendable`. Anything conforming to both will be saved and loaded easily by `Storage`.
-- [x] Disk, memory, or hybrid storage modes.
-- [x] Many options via `DiskConfig` and `MemoryConfig`.
-- [x] Support `expiry` and clean up of expired objects.
-- [x] Thread safe. `Storage` is `Sendable` and can be accessed from any queue.
-- [x] Store images via `ImageWrapper`.
-- [x] iOS, tvOS, macOS, watchOS and visionOS support.
+```swift
+.package(url: "https://github.com/voyager-software/Cache.git", from: "5.0.0")
+```
 
 ## Usage
 
-### Storage
-
-`Cache` is built based on [Chain-of-responsibility pattern](https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern), in which there are many processing objects, each knows how to do 1 task and delegates to the next one. But that's just implementation detail. All you need to know is `Storage`, it saves and loads `Codable` objects.
-
-`Storage` supports three modes: disk-only, memory-only, or hybrid (memory + disk). Memory storage is fast but volatile, while disk storage persists across application launches.
-
 ```swift
-// Disk only
-let diskConfig = DiskConfig(name: "Floppy")
-let storage = try Storage(diskConfig: diskConfig)
+// Disk
+let storage = try Storage(diskConfig: DiskConfig(name: "Floppy"))
 
-// Hybrid (memory + disk)
-let memoryConfig = MemoryConfig(expiry: .never, countLimit: 10)
-let storage = try Storage(diskConfig: diskConfig, memoryConfig: memoryConfig)
+// Disk, with objects also kept in memory
+let storage = try Storage(diskConfig: DiskConfig(name: "Floppy"), memoryConfig: MemoryConfig(countLimit: 50))
 
-// Memory only
-let storage = Storage(memoryConfig: MemoryConfig(expiry: .never, countLimit: 50))
+// Memory
+let storage = Storage(memoryConfig: MemoryConfig(countLimit: 50))
 ```
 
-#### Codable types
-
-`Storage` supports any objects that conform to [Codable](https://developer.apple.com/documentation/swift/codable) protocol. You can [make your own things conform to Codable](https://developer.apple.com/documentation/foundation/archives_and_serialization/encoding_and_decoding_custom_types) so that can be saved and loaded from `Storage`.
-
-The supported types are
-
-- Primitives like `Int`, `Float`, `String`, `Bool`, ...
-- Array of primitives like `[Int]`, `[Float]`, `[Double]`, ...
-- Set of primitives like `Set<String>`, `Set<Int>`, ...
-- Simply dictionary like `[String: Int]`, `[String: String]`, ...
-- `Date`
-- `URL`
-- `Data`
-
-#### Error handling
-
-Error handling is done via `try catch`. `Storage` throws `StorageError` when an object is missing or can't be encoded, decoded or written. Other file system errors, such as a protected file that can't be read while the device is locked, are passed through unchanged.
-
 ```swift
-public enum StorageError: Error {
-  /// Object can not be found
-  case notFound(key: String)
-  /// Object is found, but casting to requested type failed
-  case typeNotMatch(key: String)
-  /// The file attributes are malformed
-  case malformedFileAttributes(key: String)
-  /// The stored data can't be decoded as the requested type
-  case decodingFailed(context: String, underlyingError: Error?)
-  /// The object can't be encoded, or the encoded data can't be written to disk
-  case encodingFailed(context: String, underlyingError: Error?)
-}
+try storage.setObject(user, forKey: "user")
+try storage.setObject(user, forKey: "user", expiry: .seconds(3600))
+
+let user = try storage.object(ofType: User.self, forKey: "user")
+let entry = try storage.entry(ofType: User.self, forKey: "user") // entry.object, entry.expiry
+let exists = try storage.existsObject(forKey: "user")
+
+try storage.removeObject(forKey: "user")
+try storage.removeExpiredObjects()
+try storage.removeAll()
+
+let bytes = try storage.diskSize()
 ```
 
-A type mismatch is reported as `typeNotMatch` from memory, and as `decodingFailed` from disk.
-
-There can be errors because of disk problem or type mismatch when loading from storage, so if want to handle errors, you need to do `try catch`
+## Configuration
 
 ```swift
-do {
-  let storage = try Storage(diskConfig: diskConfig, memoryConfig: memoryConfig)
-} catch {
-  print(error)
-}
-```
+DiskConfig(
+    name: "Floppy",               // Folder name
+    expiry: .never,               // Default expiry
+    directory: nil,               // Where the folder goes. nil means the Caches directory
+    protectionType: .complete     // iOS and tvOS only
+)
 
-### Configuration
-
-Here is how you can play with many configuration options
-
-```swift
-let diskConfig = DiskConfig(
-  // The name of disk storage, this will be used as folder name within directory
-  name: "Floppy",
-  // Expiry date that will be applied by default for every added object
-  // if it's not overridden in the `setObject(forKey:expiry:)` method
-  expiry: .date(Date().addingTimeInterval(2*3600)),
-  // Maximum size of the disk cache storage (in bytes). 0 means no limit. Only enforced by `removeExpiredObjects()`,
-  // which then removes the objects closest to expiring until the storage is under half of this size.
-  maxSize: 10000,
-  // Where to store the disk cache. If nil, it is placed in `cachesDirectory` directory.
-  directory: try! FileManager.default.url(for: .documentDirectory, in: .userDomainMask, 
-    appropriateFor: nil, create: true).appendingPathComponent("MyPreferences"),
-  // Data protection is used to store files in an encrypted format on disk and to decrypt them on demand
-  protectionType: .complete
+MemoryConfig(
+    expiry: .never,               // Default expiry
+    countLimit: 0                 // Maximum number of objects. 0 means no limit
 )
 ```
 
-```swift
-let memoryConfig = MemoryConfig(
-  // Expiry date that will be applied by default for every added object
-  // if it's not overridden in the `setObject(forKey:expiry:)` method
-  expiry: .date(Date().addingTimeInterval(2*60)),
-  /// The maximum number of objects in memory the cache should hold. 0 means no limit.
-  countLimit: 50
-)
-```
+## Expiry
 
-On iOS, tvOS we can also specify `protectionType` on `DiskConfig` to add a level of security to files stored on disk by your app in the app’s container. For more information, see [FileProtectionType](https://developer.apple.com/documentation/foundation/fileprotectiontype)
+`.never`, `.seconds(TimeInterval)` or `.date(Date)`. It's set by the config, or per object in `setObject`.
 
-A few things to know about `protectionType`:
+An expired object counts as missing, but its file stays on disk until `removeExpiredObjects()`.
 
-- It applies to files written from now on. A file that's already there keeps its protection until it's overwritten, so adding it to an existing cache doesn't protect what's already saved.
-- With `.complete`, reading from disk and writing throw while the device is locked. Opening a `Storage` still works, and so does `existsObject(forKey:)`, which can return `true` for an object that can't be read at that moment.
-- It only protects files on disk. With hybrid storage, an object already in memory stays readable while the device is locked, so use disk-only storage for sensitive data.
+## Errors
 
-### APIs
+| Error | When |
+|---|---|
+| `notFound` | There's no object for the key, or it has expired |
+| `typeNotMatch` | The object in memory is a different type |
+| `decodingFailed` | The data on disk can't be decoded as the requested type |
+| `encodingFailed` | The object can't be encoded, or the file can't be written |
+| `malformedFileAttributes` | The file's expiry can't be read |
 
-`Storage` is thread safe and `Sendable` — you can access it from any queue or task. All functions are constrained by the `StorageAware` protocol.
+Other file system errors are passed through unchanged, for example reading a protected file while the device is locked.
 
-```swift
-// Save to storage
-try? storage.setObject(10, forKey: "score")
-try? storage.setObject("Oslo", forKey: "my favorite city", expiry: .never)
-try? storage.setObject(["alert", "sounds", "badge"], forKey: "notifications")
-try? storage.setObject(data, forKey: "a bunch of bytes")
-try? storage.setObject(authorizeURL, forKey: "authorization URL")
+## File protection
 
-// Load from storage
-let score = try? storage.object(ofType: Int.self, forKey: "score")
-let favoriteCharacter = try? storage.object(ofType: String.self, forKey: "my favorite city")
-
-// Check if an object exists
-let hasFavoriteCharacter = try? storage.existsObject(forKey: "my favorite city")
-
-// Remove an object in storage
-try? storage.removeObject(forKey: "my favorite city")
-
-// Remove all objects
-try? storage.removeAll()
-
-// Remove expired objects
-try? storage.removeExpiredObjects()
-```
-
-#### Entry
-
-There is time you want to get object together with its expiry information. You can use `Entry`
-
-```swift
-let entry = try? storage.entry(ofType: String.self, forKey: "my favorite city")
-print(entry?.object)
-print(entry?.expiry)
-```
-
-Unlike `object(ofType:forKey:)`, `entry(ofType:forKey:)` also returns an object that has expired, so check `entry.expiry.isExpired`.
-
-#### Custom types
-
-Types stored in `Storage` must conform to both `Codable` and `Sendable`. It does not work for `[String: Any]` as `Any` conforms to neither. Convert JSON responses to strongly typed objects before saving.
-
-```swift
-struct User: Codable, Sendable {
-  let firstName: String
-  let lastName: String
-}
-
-let user = User(firstName: "John", lastName: "Snow")
-try? storage.setObject(user, forKey: "character")
-```
-
-### Expiry date
-
-By default, all saved objects have the same expiry as the expiry you specify in `DiskConfig` or `MemoryConfig`. You can overwrite this for a specific object by specifying `expiry` for `setObject`
-
-```swift
-// Default expiry date from configuration will be applied to the item
-try? storage.setObject("This is a string", forKey: "string")
-
-// A given expiry date will be applied to the item
-try? storage.setObject(
-  "This is a string",
-  forKey: "string",
-  expiry: .date(Date().addingTimeInterval(2 * 3600))
-)
-
-// Clear expired objects
-try? storage.removeExpiredObjects()
-```
-
-## What about images?
-
-As you may know, `NSImage` and `UIImage` don't conform to `Codable` by default. To make it play well with `Codable`, we introduce `ImageWrapper`, so you can save and load images like
-
-```swift
-let wrapper = ImageWrapper(image: starIconImage)
-try? storage.setObject(wrapper, forKey: "star")
-
-let icon = try? storage.object(ofType: ImageWrapper.self, forKey: "star").image
-```
+- `protectionType` applies to files written from now on. A file that's already there keeps its protection until it's overwritten.
+- With `.complete`, reading from disk and writing throw while the device is locked. Opening a `Storage` still works, and `existsObject(forKey:)` can return `true` for an object that can't be read at that moment.
+- It only covers files on disk. An object already in memory stays readable while the device is locked, so use disk-only storage for sensitive data.
 
 ## Authors
 
-- Original idea: [Hyper](http://hyper.no) made this with ❤️
+- Original idea: [Hyper](http://hyper.no)
 - Reworked, simplified and modernized: Gabor S
 
 ## License
 
-**Cache** is available under the MIT license. 
+MIT

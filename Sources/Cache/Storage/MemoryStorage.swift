@@ -25,7 +25,7 @@ final class MemoryStorage: Sendable {
 
 extension MemoryStorage: StorageAware {
     func entry<T: Codable & Sendable>(ofType type: T.Type, forKey key: String) throws -> Entry<T> {
-        guard let capsule = cache.object(forKey: key as NSString) else {
+        guard let capsule = cache.object(forKey: key as NSString), !capsule.expiry.isExpired else {
             throw StorageError.notFound(key: key)
         }
 
@@ -64,6 +64,10 @@ extension MemoryStorage: StorageAware {
         for key in allKeys {
             removeObjectIfExpired(forKey: key)
         }
+    }
+
+    func diskSize() -> UInt64 {
+        0
     }
 }
 
